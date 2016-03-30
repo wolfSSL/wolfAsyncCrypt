@@ -38,8 +38,8 @@ typedef struct AsyncCrypt {
 } AsyncCrypt;
 
 
-WOLFSSL_LOCAL int wolfSSL_async_pop(WOLFSSL* ssl, int event_type);
-WOLFSSL_LOCAL int wolfSSL_async_push(WOLFSSL* ssl, int event_type);
+WOLFSSL_LOCAL int wolfSSL_async_pop(WOLFSSL* ssl, enum WOLF_EVENT_TYPE event_type);
+WOLFSSL_LOCAL int wolfSSL_async_push(WOLFSSL* ssl, enum WOLF_EVENT_TYPE event_type);
 WOLFSSL_LOCAL int wolfSSL_async_poll(WOLF_EVENT* event, unsigned char flags);
 
 

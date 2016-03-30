@@ -164,7 +164,7 @@ static int wolfSSL_async_crypt_test(WOLF_EVENT* event)
 
 
 
-int wolfSSL_async_pop(WOLFSSL* ssl, int event_type)
+int wolfSSL_async_pop(WOLFSSL* ssl, enum WOLF_EVENT_TYPE event_type)
 {
     int ret;
 
@@ -193,7 +193,7 @@ int wolfSSL_async_pop(WOLFSSL* ssl, int event_type)
     return ret;
 }
 
-int wolfSSL_async_push(WOLFSSL* ssl, int event_type)
+int wolfSSL_async_push(WOLFSSL* ssl, enum WOLF_EVENT_TYPE event_type)
 {
     int ret;
 
@@ -213,23 +213,22 @@ int wolfSSL_async_push(WOLFSSL* ssl, int event_type)
 int wolfSSL_async_poll(WOLF_EVENT* event, unsigned char flags)
 {
     int ret = SSL_ERROR_NONE;
+    
+    (void)flags;
 
     if (event == NULL) {
         return BAD_FUNC_ARG;
     }
 
-    /* Check hardware */
-    if (flags & WOLF_POLL_FLAG_CHECK_HW) {
-    #if defined(WOLFSSL_ASYNC_CRYPT_TEST)
-        event->ret = wolfSSL_async_crypt_test(event);
-    #else
-        /* TODO: Implement real hardware checking */
-        /* Note: event queue mutex is locked here, so make sure
-            hardware doesn't try and lock event_queue */
-        event->ret = 0;
-        event->done = 1;
-    #endif
-    }
+#if defined(WOLFSSL_ASYNC_CRYPT_TEST)
+    event->ret = wolfSSL_async_crypt_test(event);
+#else
+    /* TODO: Implement real hardware checking */
+    /* Note: event queue mutex is locked here, so make sure
+        hardware doesn't try and lock event_queue */
+    event->ret = 0;
+    event->done = 1;
+#endif
 
     return ret;
 }
