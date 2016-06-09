@@ -419,6 +419,7 @@ int wolfAsync_EventQueue_Poll(WOLF_EVENT_QUEUE* queue, void* context_filter,
                             event->ret = wolfAsync_crypt_test(event);
                         }
                 #endif
+                    (void)asyncDev; /* Ignore un-used warning */
                 }
             }
         } /* for */
