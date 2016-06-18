@@ -49,10 +49,11 @@ static int wolfAsync_crypt_test(WOLF_EVENT* event)
     #if defined(HAVE_ECC)
         case ASYNC_TEST_ECC_MAKE:
         {
-            ret = wc_ecc_make_key(
+            ret = wc_ecc_make_key_ex(
                 (WC_RNG*)testDev->eccMake.rng,
                 testDev->eccMake.size,
-                (ecc_key*)testDev->eccMake.key
+                (ecc_key*)testDev->eccMake.key,
+                testDev->eccMake.dp
             );
             break;
         }
