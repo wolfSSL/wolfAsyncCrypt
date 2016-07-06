@@ -202,8 +202,7 @@ int wolfAsync_EventPop(WOLF_EVENT* event, enum WOLF_EVENT_TYPE event_type)
         return BAD_FUNC_ARG;
     }
 
-    if (event->type == event_type &&
-        event->pending)
+    if (event->type == event_type)
     {
         /* Trap the scenario where event is not done */
         if (!event->done) {
@@ -226,19 +225,15 @@ int wolfAsync_EventPop(WOLF_EVENT* event, enum WOLF_EVENT_TYPE event_type)
 int wolfAsync_EventQueuePush(WOLF_EVENT_QUEUE* queue, WOLF_EVENT* event, 
     enum WOLF_EVENT_TYPE event_type, void* context)
 {
-    int ret;
+    (void)event_type;
+    (void)context;
 
     if (queue == NULL) {
         return BAD_FUNC_ARG;
     }
 
     /* Setup event and push to event queue */
-    ret = wolfEvent_Init(event, event_type, context);
-    if (ret == 0) {
-        ret = wolfEventQueue_Push(queue, event);
-    }
-
-    return ret;
+    return wolfEventQueue_Push(queue, event);
 }
 
 int wolfAsync_EventPoll(WOLF_EVENT* event, WOLF_EVENT_FLAG flags)
@@ -294,7 +289,8 @@ int wolfSSL_AsyncPoll(WOLFSSL* ssl, WOLF_EVENT_FLAG flags)
         return BAD_FUNC_ARG;
     }
 
-    ret = wolfAsync_EventQueue_Poll(&ssl->ctx->event_queue, ssl,
+    /* not filtering on "ssl", since its the asyncDev */
+    ret = wolfAsync_EventQueue_Poll(&ssl->ctx->event_queue, NULL,
         events, sizeof(events)/sizeof(WOLF_EVENT), flags, &eventCount);
     if (ret == 0 && eventCount > 0) {
         ret = 1; /* Success */
