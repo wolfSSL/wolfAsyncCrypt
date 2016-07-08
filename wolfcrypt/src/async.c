@@ -202,7 +202,7 @@ int wolfAsync_EventPop(WOLF_EVENT* event, enum WOLF_EVENT_TYPE event_type)
         return BAD_FUNC_ARG;
     }
 
-    if (event->type == event_type)
+    if (event->type == event_type || event_type == WOLF_EVENT_TYPE_ASYNC_ANY)
     {
         /* Trap the scenario where event is not done */
         if (!event->done) {
