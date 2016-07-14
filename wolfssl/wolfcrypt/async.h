@@ -46,6 +46,8 @@ struct ecc_set_type;
         word32          sigSz;
         word32          idx;
         word32          length;
+        int             hashAlgo;
+        byte            sigAlgo;
     } AsyncCryptSSLState;
 #endif /* !WOLFCRYPT_ONLY */
 
@@ -205,8 +207,7 @@ WOLFSSL_API int wolfAsync_EventInit(WOLF_EVENT* event, enum WOLF_EVENT_TYPE type
 WOLFSSL_API int wolfAsync_EventWait(WOLF_EVENT* event);
 WOLFSSL_API int wolfAsync_EventPoll(WOLF_EVENT* event, WOLF_EVENT_FLAG flags);
 WOLFSSL_API int wolfAsync_EventPop(WOLF_EVENT* event, enum WOLF_EVENT_TYPE event_type);
-WOLFSSL_API int wolfAsync_EventQueuePush(WOLF_EVENT_QUEUE* queue, WOLF_EVENT* event, 
-    enum WOLF_EVENT_TYPE event_type, void* context);
+WOLFSSL_API int wolfAsync_EventQueuePush(WOLF_EVENT_QUEUE* queue, WOLF_EVENT* event);
 WOLFSSL_API int wolfAsync_EventQueue_Poll(WOLF_EVENT_QUEUE* queue, void* context_filter,
     WOLF_EVENT** events, int maxEvents, WOLF_EVENT_FLAG flags, int* eventCount);
 

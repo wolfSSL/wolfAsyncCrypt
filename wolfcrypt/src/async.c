@@ -227,9 +227,6 @@ int wolfAsync_EventPop(WOLF_EVENT* event, enum WOLF_EVENT_TYPE event_type)
 
         /* Check async return code */
         ret = event->ret;
-
-        /* Clear event (we are done with it) */
-        XMEMSET(event, 0, sizeof(WOLF_EVENT));
     }
     else {
         ret = WC_NOT_PENDING_E;
@@ -238,12 +235,8 @@ int wolfAsync_EventPop(WOLF_EVENT* event, enum WOLF_EVENT_TYPE event_type)
     return ret;
 }
 
-int wolfAsync_EventQueuePush(WOLF_EVENT_QUEUE* queue, WOLF_EVENT* event, 
-    enum WOLF_EVENT_TYPE event_type, void* context)
+int wolfAsync_EventQueuePush(WOLF_EVENT_QUEUE* queue, WOLF_EVENT* event)
 {
-    (void)event_type;
-    (void)context;
-
     if (queue == NULL) {
         return BAD_FUNC_ARG;
     }
