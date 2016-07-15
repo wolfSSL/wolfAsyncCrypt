@@ -86,68 +86,83 @@ typedef struct AsyncCryptState {
     #endif /* !NO_DH */
     };
 
+#ifdef ATOMIC_USER
+    struct AsyncCryptTestMacEncrypt {
+        byte* macOut;
+        const byte* macIn;
+        word32 macInSz;
+        int macContent;
+        int macVerify;
+        byte* encOut;
+        const byte* encIn;
+        word32 encSz;
+    };
+    struct AsyncCryptTestDecryptVerify {
+        byte* decOut;
+        const byte* decIn;
+        word32 decSz;
+        int macContent;
+        int macVerify;
+        word32* padSz;
+    };
+#endif /* ATOMIC_USER */
+#ifdef HAVE_ECC
+    struct AsyncCryptTestEccMake {
+        void* rng; /* WC_RNG */
+        void* key; /* ecc_key */
+        const struct ecc_set_type* dp;
+        int size;
+    };
+    struct AsyncCryptTestEccSign {
+        const byte* in;
+        word32 inSz;
+        byte* out;
+        word32* outSz;
+        void* rng; /* WC_RNG */
+        void* key; /* ecc_key */
+    };
+    struct AsyncCryptTestEccVerify {
+        const byte* in;
+        word32 inSz;
+        const byte* out;
+        word32 outSz;
+        int* stat;
+        void* key; /* ecc_key */
+    };
+    struct AsyncCryptTestEccSharedSec {
+        void* private_key; /* ecc_key */
+        void* public_key; /* ecc_key */
+        byte* out;
+        word32* outLen;
+    };
+#endif /* HAVE_ECC */
+#ifndef NO_RSA
+    struct AsyncCryptTestRsaFunc {
+        const byte* in;
+        word32 inSz;
+        byte* out;
+        word32* outSz;
+        int type;
+        void* key; /* RsaKey */
+    };
+#endif /* !NO_RSA */
+
+
     typedef struct AsyncCryptTestDev {
         void* ctx;
         union {
     #ifdef ATOMIC_USER
-            struct AsyncCryptTestMacEncrypt {
-                byte* macOut;
-                const byte* macIn;
-                word32 macInSz;
-                int macContent;
-                int macVerify;
-                byte* encOut;
-                const byte* encIn;
-                word32 encSz;
-            } macEncrypt;
-            struct AsyncCryptTestDecryptVerify {
-                byte* decOut;
-                const byte* decIn;
-                word32 decSz;
-                int macContent;
-                int macVerify;
-                word32* padSz;
-            } decryptVerify;
+            struct AsyncCryptTestMacEncrypt macEncrypt;
+            struct AsyncCryptTestDecryptVerify decryptVerify;
     #endif /* ATOMIC_USER */
     #ifdef HAVE_ECC
-            struct AsyncCryptTestEccMake {
-                void* rng; /* WC_RNG */
-                void* key; /* ecc_key */
-                const struct ecc_set_type* dp;
-                int size;
-            } eccMake;
-            struct AsyncCryptTestEccSign {
-                const byte* in;
-                word32 inSz;
-                byte* out;
-                word32* outSz;
-                void* rng; /* WC_RNG */
-                void* key; /* ecc_key */
-            } eccSign;
-            struct AsyncCryptTestEccVerify {
-                const byte* in;
-                word32 inSz;
-                const byte* out;
-                word32 outSz;
-                int* stat;
-                void* key; /* ecc_key */
-            } eccVerify;
-            struct AsyncCryptTestEccSharedSec {
-                void* private_key; /* ecc_key */
-                void* public_key; /* ecc_key */
-                byte* out;
-                word32* outLen;
-            } eccSharedSec;
+            struct AsyncCryptTestEccMake eccMake;
+            struct AsyncCryptTestEccSign eccSign;
+            struct AsyncCryptTestEccVerify eccVerify;
+            struct AsyncCryptTestEccSharedSec eccSharedSec;
     #endif /* HAVE_ECC */
     #ifndef NO_RSA
-            struct AsyncCryptTestRsaFunc {
-                const byte* in;
-                word32 inSz;
-                byte* out;
-                word32* outSz;
-                int type;
-                void* key; /* RsaKey */
-            } rsaFunc;
+            struct AsyncCryptTestRsaFunc rsaFunc;
     #endif /* !NO_RSA */
         }; /* union */
         byte type; /* enum AsyncCryptTestType */
