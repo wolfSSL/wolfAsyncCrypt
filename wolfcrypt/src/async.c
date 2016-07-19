@@ -58,7 +58,7 @@ static int wolfAsync_crypt_test(WOLF_EVENT* event)
                 (WC_RNG*)testDev->eccMake.rng,
                 testDev->eccMake.size,
                 (ecc_key*)testDev->eccMake.key,
-                testDev->eccMake.dp
+                testDev->eccMake.curve_id
             );
             break;
         }
@@ -106,7 +106,8 @@ static int wolfAsync_crypt_test(WOLF_EVENT* event)
                 testDev->rsaFunc.out,
                 testDev->rsaFunc.outSz,
                 testDev->rsaFunc.type,
-                (RsaKey*)testDev->rsaFunc.key
+                (RsaKey*)testDev->rsaFunc.key,
+                testDev->rsaFunc.rng
             );
             break;
         }

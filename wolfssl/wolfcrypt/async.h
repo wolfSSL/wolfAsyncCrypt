@@ -34,7 +34,6 @@
 #endif
 
 struct WOLFSSL;
-struct ecc_set_type;
 
 #ifndef WOLFCRYPT_ONLY
     /* this strucutre is used for caching TLS state on WC_PENDING_E */
@@ -110,7 +109,7 @@ typedef struct AsyncCryptState {
     struct AsyncCryptTestEccMake {
         void* rng; /* WC_RNG */
         void* key; /* ecc_key */
-        const struct ecc_set_type* dp;
+        int curve_id;
         int size;
     };
     struct AsyncCryptTestEccSign {
@@ -144,6 +143,7 @@ typedef struct AsyncCryptState {
         word32* outSz;
         int type;
         void* key; /* RsaKey */
+        void* rng;
     };
 #endif /* !NO_RSA */
 
