@@ -285,7 +285,7 @@ int wolfSSL_CTX_AsyncPoll(WOLFSSL_CTX* ctx, WOLF_EVENT** events, int maxEvents,
         return BAD_FUNC_ARG;
     }
 
-    return wolfAsync_EventQueue_Poll(&ctx->event_queue, NULL,
+    return wolfAsync_EventQueuePoll(&ctx->event_queue, NULL,
                                         events, maxEvents, flags, eventCount);
 }
 
@@ -299,7 +299,7 @@ int wolfSSL_AsyncPoll(WOLFSSL* ssl, WOLF_EVENT_FLAG flags)
     }
 
     /* not filtering on "ssl", since its the asyncDev */
-    ret = wolfAsync_EventQueue_Poll(&ssl->ctx->event_queue, NULL,
+    ret = wolfAsync_EventQueuePoll(&ssl->ctx->event_queue, NULL,
         events, sizeof(events)/sizeof(WOLF_EVENT), flags, &eventCount);
     if (ret == 0 && eventCount > 0) {
         ret = 1; /* Success */
@@ -359,7 +359,7 @@ static int wolfAsync_CheckMultiReqBuf(AsyncCryptDev* asyncDev,
 }
 #endif
 
-int wolfAsync_EventQueue_Poll(WOLF_EVENT_QUEUE* queue, void* context_filter,
+int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
     WOLF_EVENT** events, int maxEvents, WOLF_EVENT_FLAG flags, int* eventCount)
 {
     WOLF_EVENT* event;
