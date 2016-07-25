@@ -33,7 +33,6 @@
     #include <wolfssl/wolfcrypt/port/cavium/cavium_nitrox.h>
 #endif
 
-struct WOLFSSL;
 
 #ifndef WOLFCRYPT_ONLY
     /* this strucutre is used for caching TLS state on WC_PENDING_E */
@@ -225,10 +224,6 @@ WOLFSSL_API int wolfAsync_EventPop(WOLF_EVENT* event, enum WOLF_EVENT_TYPE event
 WOLFSSL_API int wolfAsync_EventQueuePush(WOLF_EVENT_QUEUE* queue, WOLF_EVENT* event);
 WOLFSSL_API int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
     WOLF_EVENT** events, int maxEvents, WOLF_EVENT_FLAG flags, int* eventCount);
-
-WOLFSSL_API int wolfSSL_AsyncPoll(struct WOLFSSL* ssl, WOLF_EVENT_FLAG flags);
-WOLFSSL_API int wolfSSL_CTX_AsyncPoll(WOLFSSL_CTX* ctx, WOLF_EVENT** events, int maxEvents,
-    WOLF_EVENT_FLAG flags, int* eventCount);
 
 #endif /* WOLFSSL_ASYNC_CRYPT */
 

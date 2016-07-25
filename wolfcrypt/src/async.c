@@ -279,35 +279,6 @@ int wolfAsync_EventPoll(WOLF_EVENT* event, WOLF_EVENT_FLAG flags)
     return ret;
 }
 
-int wolfSSL_CTX_AsyncPoll(WOLFSSL_CTX* ctx, WOLF_EVENT** events, int maxEvents,
-    WOLF_EVENT_FLAG flags, int* eventCount)
-{
-    if (ctx == NULL) {
-        return BAD_FUNC_ARG;
-    }
-
-    return wolfAsync_EventQueuePoll(&ctx->event_queue, NULL,
-                                        events, maxEvents, flags, eventCount);
-}
-
-int wolfSSL_AsyncPoll(WOLFSSL* ssl, WOLF_EVENT_FLAG flags)
-{
-    int ret, eventCount = 0;
-    WOLF_EVENT* events[1];
-
-    if (ssl == NULL) {
-        return BAD_FUNC_ARG;
-    }
-
-    /* not filtering on "ssl", since its the asyncDev */
-    ret = wolfAsync_EventQueuePoll(&ssl->ctx->event_queue, NULL,
-        events, sizeof(events)/sizeof(WOLF_EVENT), flags, &eventCount);
-    if (ret == 0 && eventCount > 0) {
-        ret = 1; /* Success */
-    }
-
-    return ret;
-}
 
 #ifdef HAVE_CAVIUM
 static int wolfAsync_CheckMultiReqBuf(AsyncCryptDev* asyncDev,
