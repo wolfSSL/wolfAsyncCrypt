@@ -213,7 +213,7 @@ int wolfAsync_EventPop(WOLF_EVENT* event, enum WOLF_EVENT_TYPE event_type)
         return BAD_FUNC_ARG;
     }
 
-    if (event->type == event_type || 
+    if (event->type == event_type ||
             (event_type == WOLF_EVENT_TYPE_ASYNC_ANY &&
                 event->type >= WOLF_EVENT_TYPE_ASYNC_FIRST &&
                 event->type <= WOLF_EVENT_TYPE_ASYNC_LAST))
@@ -351,7 +351,7 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
 
 #ifndef SINGLE_THREADED
     /* In single threaded mode "event_queue.lock" doesn't exist */
-    if ((ret = LockMutex(&queue->lock)) != 0) {
+    if ((ret = wc_LockMutex(&queue->lock)) != 0) {
         return ret;
     }
 #endif
@@ -369,7 +369,7 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
                 if (context_filter == NULL || event->context == context_filter) {
                     asyncDev = (AsyncCryptDev*)event->context;
                     count++;
-                
+
                 #if defined(HAVE_CAVIUM)
                     /* Fill multi request status buffer */
                     if (event->reqId > 0) {
@@ -442,7 +442,7 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
     }
 
 #ifndef SINGLE_THREADED
-    UnLockMutex(&queue->lock);
+    wc_UnLockMutex(&queue->lock);
 #endif
 
     /* Return number of properly populated events */
