@@ -31,79 +31,58 @@
 #include <wolfssl/wolfcrypt/wolfevent.h>
 #ifdef HAVE_CAVIUM
     #include <wolfssl/wolfcrypt/port/cavium/cavium_nitrox.h>
+#elif defined(HAVE_INTEL_QA)
+    #include <wolfssl/wolfcrypt/port/intel/quickassist.h>
 #endif
 
 
-#ifndef WOLFCRYPT_ONLY
-    /* this strucutre is used for caching TLS state on WC_PENDING_E */
-    typedef struct AsyncCryptSSLState {
-        byte*           output;        /* This is a pointer to outputBuffer, 
-                                          no need to free */
-        byte*           data;          /* General Purpose data buffer */
-        word32          sendSz;
-        word32          sigSz;
-        word32          idx;
-        word32          length;
-        int             hashAlgo;
-        byte            sigAlgo;
-    } AsyncCryptSSLState;
-#endif /* !WOLFCRYPT_ONLY */
-
-/* state tracking for async crypto */
-typedef struct AsyncCryptState {
-    int     state;
-} AsyncCryptState;
+struct WC_ASYNC_DEV;
 
 
 /* Asyncronous Crypt Tests */
 #ifdef WOLFSSL_ASYNC_CRYPT_TEST
-    enum AsyncCryptTestType {
-        ASYNC_TEST_NONE,
-    #ifdef ATOMIC_USER
-        ASYNC_TEST_MAC_ENC,
-        ASYNC_TEST_DEC_VERIFY,
-    #endif /* ATOMIC_USER */
-    #ifdef HAVE_ECC
-        ASYNC_TEST_ECC_MAKE,
-        ASYNC_TEST_ECC_SIGN,
-        ASYNC_TEST_ECC_VERIFY,
-        ASYNC_TEST_ECC_SHARED_SEC,
-    #endif /* HAVE_ECC */
-    #ifndef NO_RSA
-        ASYNC_TEST_RSA_FUNC,
-        ASYNC_TEST_RSA_SIGN,
-        ASYNC_TEST_RSA_VERIFY,
-        ASYNC_TEST_RSA_VERIFYINLINE,
-        ASYNC_TEST_RSA_ENC,
-        ASYNC_TEST_RSA_DEC,
-        ASYNC_TEST_RSA_DECINLINE,
-    #endif /* !NO_RSA */
-    #if !defined(NO_DH)
-        ASYNC_TEST_DH_GEN,
-        ASYNC_TEST_DH_AGREE,
-    #endif /* !NO_DH */
+    enum WC_ASYNC_TEST_TYPE {
+        ASYNC_TEST_NONE             = 0,
+#ifdef HAVE_ECC
+        ASYNC_TEST_ECC_MAKE         = 1,
+    #ifdef HAVE_ECC_SIGN
+        ASYNC_TEST_ECC_SIGN         = 2,
+    #endif
+    #ifdef HAVE_ECC_VERIFY
+        ASYNC_TEST_ECC_VERIFY       = 3,
+    #endif
+    #ifdef HAVE_ECC_DHE
+        ASYNC_TEST_ECC_SHARED_SEC   = 4,
+    #endif
+#endif /* HAVE_ECC */
+#ifndef NO_RSA
+    #ifdef WOLFSSL_KEY_GEN
+        ASYNC_TEST_RSA_MAKE         = 5,
+    #endif
+        ASYNC_TEST_RSA_FUNC         = 6,
+#endif /* !NO_RSA */
+#ifndef NO_DH
+        ASYNC_TEST_DH_AGREE         = 7,
+        ASYNC_TEST_DH_GEN           = 8,
+#endif /* !NO_DH */
+#ifndef NO_AES
+        ASYNC_TEST_AES_CBC_ENCRYPT  = 9,
+    #ifdef HAVE_AES_DECRYPT
+        ASYNC_TEST_AES_CBC_DECRYPT  = 10,
+    #endif
+    #ifdef HAVE_AESGCM
+        ASYNC_TEST_AES_GCM_ENCRYPT  = 11,
+        #ifdef HAVE_AES_DECRYPT
+        ASYNC_TEST_AES_GCM_DECRYPT  = 12,
+        #endif
+    #endif /* HAVE_AESGCM */
+#endif /* !NO_AES */
+#ifndef NO_DES3
+        ASYNC_TEST_DES3_CBC_ENCRYPT = 13,
+        ASYNC_TEST_DES3_CBC_DECRYPT = 14,
+#endif /* !NO_DES3 */
     };
 
-#ifdef ATOMIC_USER
-    struct AsyncCryptTestMacEncrypt {
-        byte* macOut;
-        const byte* macIn;
-        word32 macInSz;
-        int macContent;
-        int macVerify;
-        byte* encOut;
-        const byte* encIn;
-        word32 encSz;
-    };
-    struct AsyncCryptTestDecryptVerify {
-        byte* decOut;
-        const byte* decIn;
-        word32 decSz;
-        int macContent;
-        int macVerify;
-        word32* padSz;
-    };
-#endif /* ATOMIC_USER */
 #ifdef HAVE_ECC
     struct AsyncCryptTestEccMake {
         void* rng; /* WC_RNG */
@@ -114,27 +93,35 @@ typedef struct AsyncCryptState {
     struct AsyncCryptTestEccSign {
         const byte* in;
         word32 inSz;
-        byte* out;
-        word32* outSz;
         void* rng; /* WC_RNG */
         void* key; /* ecc_key */
+        void* r; /* mp_int */
+        void* s; /* mp_int */
     };
     struct AsyncCryptTestEccVerify {
-        const byte* in;
-        word32 inSz;
-        const byte* out;
-        word32 outSz;
+        void* r; /* mp_int */
+        void* s; /* mp_int */
+        const byte* hash;
+        word32 hashlen;
         int* stat;
         void* key; /* ecc_key */
     };
     struct AsyncCryptTestEccSharedSec {
         void* private_key; /* ecc_key */
-        void* public_key; /* ecc_key */
+        void* public_point; /* ecc_point */
         byte* out;
         word32* outLen;
     };
 #endif /* HAVE_ECC */
 #ifndef NO_RSA
+    #ifdef WOLFSSL_KEY_GEN
+        struct AsyncCryptTestRsaMake {
+            void* key; /* RsaKey */
+            void* rng;
+            long e;
+            int size;
+        };
+    #endif
     struct AsyncCryptTestRsaFunc {
         const byte* in;
         word32 inSz;
@@ -146,14 +133,55 @@ typedef struct AsyncCryptState {
     };
 #endif /* !NO_RSA */
 
+#ifndef NO_DH
+    struct AsyncCryptTestDhAgree {
+        void* key; /* DhKey */
+        byte* agree;
+        word32* agreeSz;
+        const byte* priv;
+        word32 privSz;
+        const byte* otherPub;
+        word32 pubSz;
+    };
+    struct AsyncCryptTestDhGen {
+        void* key; /* DhKey */
+        void* rng; /* WC_RNG */
+        byte* priv;
+        word32* privSz;
+        byte* pub;
+        word32* pubSz;
+    };
+#endif /* !NO_DH */
 
-    typedef struct AsyncCryptTestDev {
+#ifndef NO_AES
+    struct AsyncCryptTestAes {
+        void* aes; /* Aes */
+        byte* out;
+        const byte* in;
+        word32 sz;
+    #ifdef HAVE_AESGCM
+        const byte* iv;
+        word32 ivSz;
+        byte* authTag;
+        word32 authTagSz;
+        const byte* authIn;
+        word32 authInSz;
+    #endif
+    };
+#endif /* !NO_AES */
+
+#ifndef NO_DES3
+    struct AsyncCryptTestDes {
+        void* des; /* Des */
+        byte* out;
+        const byte* in;
+        word32 sz;
+    };
+#endif /* !NO_DES3 */
+
+    typedef struct WC_ASYNC_TEST {
         void* ctx;
         union {
-    #ifdef ATOMIC_USER
-            struct AsyncCryptTestMacEncrypt macEncrypt;
-            struct AsyncCryptTestDecryptVerify decryptVerify;
-    #endif /* ATOMIC_USER */
     #ifdef HAVE_ECC
             struct AsyncCryptTestEccMake eccMake;
             struct AsyncCryptTestEccSign eccSign;
@@ -161,28 +189,74 @@ typedef struct AsyncCryptState {
             struct AsyncCryptTestEccSharedSec eccSharedSec;
     #endif /* HAVE_ECC */
     #ifndef NO_RSA
+        #ifdef WOLFSSL_KEY_GEN
+            struct AsyncCryptTestRsaMake rsaMake;
+        #endif
             struct AsyncCryptTestRsaFunc rsaFunc;
     #endif /* !NO_RSA */
+    #ifndef NO_DH
+        struct AsyncCryptTestDhAgree dhAgree;
+        struct AsyncCryptTestDhGen dhGen;
+    #endif /* !NO_DH */
+    #ifndef NO_AES
+        struct AsyncCryptTestAes aes;
+    #endif /* !NO_AES */
+    #ifndef NO_DES3
+        struct AsyncCryptTestDes des;
+    #endif /* !NO_DES3 */
         }; /* union */
-        byte type; /* enum AsyncCryptTestType */
-    } AsyncCryptTestDev;
+        byte type; /* enum WC_ASYNC_TEST_TYPE */
+    } WC_ASYNC_TEST;
 #endif /* WOLFSSL_ASYNC_CRYPT_TEST */
+
+/* Performance tuning options */
 
 /* determine maximum async pending requests */
 #ifdef HAVE_CAVIUM
-    #define WOLF_ASYNC_MAX_PENDING CAVIUM_MAX_PENDING
+    #define WOLF_ASYNC_MAX_PENDING  CAVIUM_MAX_PENDING
+    #define WOLF_ASYNC_MAX_THREADS  CAVIUM_MAX_THREADS
 #elif defined(HAVE_INTEL_QA)
-    /* TODO: Add max pending for Intel QuickAssist */
+    #define WOLF_ASYNC_MAX_PENDING  QAT_MAX_PENDING
+    #define WOLF_ASYNC_MAX_THREADS  QAT_MAX_THREADS
 #else
-    #define WOLF_ASYNC_MAX_PENDING      1
+    #define WOLF_ASYNC_MAX_PENDING  6
+    #define WOLF_ASYNC_MAX_THREADS  6
 
-    /* Use this to introduce extra delay in test where count % mod has remainder */
-    /* Must be less than WOLF_ASYNC_MAX_PENDING */
-    //#define WOLF_ASYNC_TEST_SKIP_MOD    10
+    #ifdef DEBUG_WOLFSSL
+        /* Use this to introduce extra delay in simulator at interval */
+        #define WOLF_ASYNC_TEST_SKIP_MOD    2
+        #ifdef WOLF_ASYNC_TEST_SKIP_MOD
+            #undef  WOLF_ASYNC_MAX_PENDING
+            #define WOLF_ASYNC_MAX_PENDING  (WOLF_ASYNC_TEST_SKIP_MOD * 2)
+        #endif
+    #endif
 #endif
+
+/* async thresholds - defaults */
+#ifdef WC_ASYNC_THRESH_NONE
+    #undef  WC_ASYNC_THRESH_AES_CBC
+    #define WC_ASYNC_THRESH_AES_CBC  1
+
+    #undef  WC_ASYNC_THRESH_AES_GCM
+    #define WC_ASYNC_THRESH_AES_GCM  1
+
+    #undef  WC_ASYNC_THRESH_DES3_CBC
+    #define WC_ASYNC_THRESH_DES3_CBC 1
+#else
+    #ifndef WC_ASYNC_THRESH_AES_CBC
+        #define WC_ASYNC_THRESH_AES_CBC 1024
+    #endif
+    #ifndef WC_ASYNC_THRESH_AES_GCM
+        #define WC_ASYNC_THRESH_AES_GCM 128
+    #endif
+    #ifndef WC_ASYNC_THRESH_DES3_CBC
+        #define WC_ASYNC_THRESH_DES3_CBC 1024
+    #endif
+#endif /* WC_ASYNC_THRESH_NONE */
 
 
 /* async marker values */
+#define WOLFSSL_ASYNC_MARKER_INVALID 0x0
 #define WOLFSSL_ASYNC_MARKER_ARC4   0xBEEF0001
 #define WOLFSSL_ASYNC_MARKER_AES    0xBEEF0002
 #define WOLFSSL_ASYNC_MARKER_3DES   0xBEEF0003
@@ -190,40 +264,95 @@ typedef struct AsyncCryptState {
 #define WOLFSSL_ASYNC_MARKER_HMAC   0xBEEF0005
 #define WOLFSSL_ASYNC_MARKER_RSA    0xBEEF0006
 #define WOLFSSL_ASYNC_MARKER_ECC    0xBEEF0007
+#define WOLFSSL_ASYNC_MARKER_SHA512 0xBEEF0008
+#define WOLFSSL_ASYNC_MARKER_SHA384 0xBEEF0009
+#define WOLFSSL_ASYNC_MARKER_SHA256 0xBEEF000A
+#define WOLFSSL_ASYNC_MARKER_SHA224 0xBEEF000B
+#define WOLFSSL_ASYNC_MARKER_SHA    0xBEEF000C
+#define WOLFSSL_ASYNC_MARKER_MD5    0xBEEF000D
+#define WOLFSSL_ASYNC_MARKER_DH     0xBEEF000E
 
-/* async device handle */
-#ifdef HAVE_CAVIUM
-    typedef CspHandle   AsyncDevHandle;
-#else
-    typedef int         AsyncDevHandle;
-#endif
+
+/* event flags (bit mask) */
+enum WC_ASYNC_FLAGS {
+    WC_ASYNC_FLAG_NONE =            0x00000000,
+
+    /* crypto needs called again after WC_PENDING_E */
+    WC_ASYNC_FLAG_CALL_AGAIN =      0x00000001,
+};
 
 /* async device */
-typedef struct AsyncCryptDev {
-    word32 marker;  /* async marker */
+typedef struct WC_ASYNC_DEV {
+    word32              marker;  /* async marker */
+    void*               heap;
+
+    /* event */
+    WOLF_EVENT          event;
+
+    /* context for driver */
 #ifdef HAVE_CAVIUM
-    /* context for Cavium driver */
-    CaviumNitroxDev dev;
+    CaviumNitroxDev     nitrox;
+#elif defined(HAVE_INTEL_QA)
+    IntelQaDev          qat;
 #else
-    /* context for test driver */
-    AsyncCryptTestDev dev;
+    WC_ASYNC_TEST       test;
 #endif
-} AsyncCryptDev;
+} WC_ASYNC_DEV;
 
 
-
+/* Interfaces */
+WOLFSSL_API int wolfAsync_HardwareStart(void);
+WOLFSSL_API void wolfAsync_HardwareStop(void);
 WOLFSSL_API int wolfAsync_DevOpen(int *devId);
-WOLFSSL_API int wolfAsync_DevCtxInit(AsyncCryptDev* asyncDev, int marker, int devId);
-WOLFSSL_API void wolfAsync_DevCtxFree(AsyncCryptDev* asyncDev);
+WOLFSSL_API int wolfAsync_DevOpenThread(int *devId, void* threadId);
+WOLFSSL_API int wolfAsync_DevCtxInit(WC_ASYNC_DEV* asyncDev, word32 marker, void* heap, int devId);
+WOLFSSL_API void wolfAsync_DevCtxFree(WC_ASYNC_DEV* asyncDev, word32 marker);
 WOLFSSL_API void wolfAsync_DevClose(int *devId);
+WOLFSSL_API int wolfAsync_DevCopy(WC_ASYNC_DEV* src, WC_ASYNC_DEV* dst);
 
-WOLFSSL_API int wolfAsync_EventInit(WOLF_EVENT* event, enum WOLF_EVENT_TYPE type, void* context);
+WOLFSSL_API int wolfAsync_EventInit(WOLF_EVENT* event, enum WOLF_EVENT_TYPE type, void* context, word32 flags);
 WOLFSSL_API int wolfAsync_EventWait(WOLF_EVENT* event);
-WOLFSSL_API int wolfAsync_EventPoll(WOLF_EVENT* event, WOLF_EVENT_FLAG flags);
+WOLFSSL_API int wolfAsync_EventPoll(WOLF_EVENT* event, WOLF_EVENT_FLAG event_flags);
 WOLFSSL_API int wolfAsync_EventPop(WOLF_EVENT* event, enum WOLF_EVENT_TYPE event_type);
 WOLFSSL_API int wolfAsync_EventQueuePush(WOLF_EVENT_QUEUE* queue, WOLF_EVENT* event);
 WOLFSSL_API int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
-    WOLF_EVENT** events, int maxEvents, WOLF_EVENT_FLAG flags, int* eventCount);
+    WOLF_EVENT** events, int maxEvents, WOLF_EVENT_FLAG event_flags, int* eventCount);
+
+WOLFSSL_API int wc_AsyncHandle(WC_ASYNC_DEV* asyncDev,
+    WOLF_EVENT_QUEUE* queue, word32 flags);
+WOLFSSL_API int wc_AsyncWait(int ret, WC_ASYNC_DEV* asyncDev,
+    word32 flags);
+
+
+/* Pthread Helpers */
+#ifndef WC_NO_ASYNC_THREADING
+#include <pthread.h>
+#include <errno.h>
+#include <sched.h>
+#include <unistd.h>
+
+typedef void* (*AsyncThreadFunc_t) (void *);
+
+#define THREAD_DEFAULT_PRIORITY     (0)
+#define THREAD_DEFAULT_POLICY       SCHED_OTHER
+
+WOLFSSL_API int wc_AsyncGetNumberOfCpus(void);
+WOLFSSL_API int wc_AsyncThreadCreate(pthread_t *thread,
+    AsyncThreadFunc_t function, void* params);
+WOLFSSL_API int wc_AsyncThreadCreate_ex(pthread_t *thread,
+    word32 priority, int policy,
+    AsyncThreadFunc_t function, void* params);
+WOLFSSL_API int wc_AsyncThreadBind(pthread_t *thread, word32 logicalCore);
+WOLFSSL_API int wc_AsyncThreadStart(pthread_t *thread);
+WOLFSSL_API void wc_AsyncThreadExit(void *retval);
+WOLFSSL_API int wc_AsyncThreadKill(pthread_t *thread);
+WOLFSSL_API int wc_AsyncThreadPrioritySet(pthread_t *thread, word32 priority);
+WOLFSSL_API int wc_AsyncThreadSetPolicyAndPriority(pthread_t *thread, word32 policy,
+    word32 priority);
+WOLFSSL_API int wc_AsyncThreadJoin(pthread_t *thread);
+WOLFSSL_API void wc_AsyncThreadYield(void);
+
+#endif /* WC_NO_ASYNC_THREADING */
 
 #endif /* WOLFSSL_ASYNC_CRYPT */
 
