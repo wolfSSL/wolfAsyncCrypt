@@ -214,20 +214,15 @@ struct WC_ASYNC_DEV;
 /* determine maximum async pending requests */
 #ifdef HAVE_CAVIUM
     #define WOLF_ASYNC_MAX_PENDING  CAVIUM_MAX_PENDING
-    #define WOLF_ASYNC_MAX_THREADS  CAVIUM_MAX_THREADS
 #elif defined(HAVE_INTEL_QA)
     #define WOLF_ASYNC_MAX_PENDING  QAT_MAX_PENDING
-    #define WOLF_ASYNC_MAX_THREADS  QAT_MAX_THREADS
 #else
-    #define WOLF_ASYNC_MAX_PENDING  6
-    #define WOLF_ASYNC_MAX_THREADS  6
+    #define WOLF_ASYNC_MAX_PENDING  8
 
     #ifdef DEBUG_WOLFSSL
         /* Use this to introduce extra delay in simulator at interval */
-        #define WOLF_ASYNC_TEST_SKIP_MOD    2
-        #ifdef WOLF_ASYNC_TEST_SKIP_MOD
-            #undef  WOLF_ASYNC_MAX_PENDING
-            #define WOLF_ASYNC_MAX_PENDING  (WOLF_ASYNC_TEST_SKIP_MOD * 2)
+        #ifndef WOLF_ASYNC_TEST_SKIP_MOD
+            #define WOLF_ASYNC_TEST_SKIP_MOD    (WOLF_ASYNC_MAX_PENDING / 2)
         #endif
     #endif
 #endif

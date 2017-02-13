@@ -780,10 +780,6 @@ int wc_AsyncGetNumberOfCpus(void)
 
     numCpus = (int)sysconf(_SC_NPROCESSORS_ONLN);
 
-    if (numCpus > WOLF_ASYNC_MAX_THREADS) {
-        numCpus = WOLF_ASYNC_MAX_THREADS;
-    }
-
     return numCpus;
 }
 
