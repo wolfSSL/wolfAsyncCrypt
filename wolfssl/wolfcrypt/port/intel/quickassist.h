@@ -180,6 +180,8 @@ WOLFSSL_LOCAL void IntelQaHardwareStop(void);
 WOLFSSL_LOCAL int IntelQaInit(void* threadId);
 WOLFSSL_LOCAL void IntelQaDeInit(int);
 
+WOLFSSL_LOCAL int IntelQaNumInstances(void);
+
 WOLFSSL_LOCAL int IntelQaOpen(struct WC_ASYNC_DEV* dev, int devId);
 WOLFSSL_LOCAL void IntelQaClose(struct WC_ASYNC_DEV* dev);
 

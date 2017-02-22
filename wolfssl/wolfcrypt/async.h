@@ -317,6 +317,8 @@ WOLFSSL_API int wc_AsyncHandle(WC_ASYNC_DEV* asyncDev,
 WOLFSSL_API int wc_AsyncWait(int ret, WC_ASYNC_DEV* asyncDev,
     word32 flags);
 
+WOLFSSL_API int wc_AsyncSleep(word32 ms);
+
 
 /* Pthread Helpers */
 #ifndef WC_NO_ASYNC_THREADING

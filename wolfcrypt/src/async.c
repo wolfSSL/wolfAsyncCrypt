@@ -770,6 +770,25 @@ int wc_AsyncWait(int ret, WC_ASYNC_DEV* asyncDev, word32 event_flags)
     return ret;
 }
 
+int wc_AsyncSleep(word32 ms)
+{
+    int ret = 0;
+    struct timespec resTime, remTime;
+    resTime.tv_sec = ms/1000;
+    resTime.tv_nsec = (ms%1000)*1000000;
+    do {
+        ret = nanosleep(&resTime, &remTime);
+        resTime = remTime;
+    } while ((ret!=0) && (errno == EINTR));
+
+    if (ret != 0) {
+        printf("nanoSleep failed with code %d\n", ret);
+        return BAD_FUNC_ARG;
+    }
+
+   return ret;
+}
+
 
 /* Pthread Helpers */
 #ifndef WC_NO_ASYNC_THREADING
@@ -779,6 +798,13 @@ int wc_AsyncGetNumberOfCpus(void)
     int numCpus;
 
     numCpus = (int)sysconf(_SC_NPROCESSORS_ONLN);
+
+#ifdef HAVE_INTEL_QA
+    /* for QuickAssist make sure and only use one thread->CPU per crypto instance */
+    if (numCpus > IntelQaNumInstances()) {
+        numCpus = IntelQaNumInstances();
+    }
+#endif
 
     return numCpus;
 }

@@ -84,7 +84,9 @@ static Cpa32U* g_cyInstMap = NULL;
 static Cpa16U g_numInstances = 0;
 static Cpa16U g_instCounter = 0;
 static CpaBoolean g_cyServiceStarted = CPA_FALSE;
-static CpaBoolean* g_cyPolling = NULL;
+#ifdef QAT_USE_POLLING_CHECK
+    static CpaBoolean* g_cyPolling = NULL;
+#endif
 static volatile int g_initCount = 0;
 #if defined(HAVE_ECC) && defined(HAVE_ECC_DHE)
     static Cpa8U* g_qatEcdhY = NULL;
@@ -103,26 +105,6 @@ extern Cpa32U osalLogLevelSet(Cpa32U level);
 /* -------------------------------------------------------------------------- */
 /* Polling */
 /* -------------------------------------------------------------------------- */
-#if defined(QAT_USE_POLLING_THREAD) || defined(WC_NO_ASYNC_THREADING)
-static CpaStatus OS_SLEEP(Cpa32U ms)
-{
-    int ret = 0;
-    struct timespec resTime, remTime;
-    resTime.tv_sec = ms/1000;
-    resTime.tv_nsec = (ms%1000)*1000000;
-    do {
-        ret = nanosleep(&resTime, &remTime);
-        resTime = remTime;
-    } while((ret!=0) && (errno == EINTR));
-
-    if (ret != 0) {
-        printf("nanoSleep failed with code %d\n", ret);
-        return CPA_STATUS_FAIL;
-    }
-
-   return CPA_STATUS_SUCCESS;
-}
-#endif
 
 #ifdef QAT_USE_POLLING_THREAD
 static void* IntelQaPollingThread(void* context)
@@ -133,7 +115,7 @@ static void* IntelQaPollingThread(void* context)
 #endif
     while (dev->qat.pollingCy) {
         icp_sal_CyPollInstance(dev->qat.handle, 0);
-        OS_SLEEP(10);
+        wc_AsyncSleep(10);
     }
 #ifdef QAT_DEBUG
     printf("Polling Thread Exit\n");
@@ -248,10 +230,12 @@ void IntelQaHardwareStop(void)
         g_cyInstanceInfo = NULL;
     }
 
+#ifdef QAT_USE_POLLING_CHECK
     if (g_cyPolling) {
         XFREE(g_cyPolling, NULL, DYNAMIC_TYPE_ASYNC);
         g_cyPolling = NULL;
     }
+#endif
 
     if (g_cyInstances) {
         XFREE(g_cyInstances, NULL, DYNAMIC_TYPE_ASYNC);
@@ -309,12 +293,14 @@ int IntelQaHardwareStart(const char* process_name)
         ret = INVALID_DEVID; goto error;
     }
 
+#ifdef QAT_USE_POLLING_CHECK
     g_cyPolling = (CpaBoolean*)XMALLOC(sizeof(CpaBoolean) * g_numInstances, NULL,
         DYNAMIC_TYPE_ASYNC);
     if (g_cyPolling == NULL) {
         printf("IntelQA: Failed to allocate polling status\n");
         ret = INVALID_DEVID; goto error;
     }
+#endif
 
     g_cyInstanceInfo = (CpaInstanceInfo2*)XMALLOC(
         sizeof(CpaInstanceInfo2) * g_numInstances, NULL, DYNAMIC_TYPE_ASYNC);
@@ -450,6 +436,11 @@ int IntelQaInit(void* threadId)
 	return devId;
 }
 
+int IntelQaNumInstances(void)
+{
+    return g_numInstances;
+}
+
 int IntelQaOpen(WC_ASYNC_DEV* dev, int devId)
 {
     if (dev == NULL) {
@@ -570,9 +561,11 @@ int IntelQaPoll(WC_ASYNC_DEV* dev)
 #ifndef QAT_USE_POLLING_THREAD
 	CpaStatus status;
 
+    #ifdef QAT_USE_POLLING_CHECK
     /* make sure only one thread is polling for an instance */
     if (!g_cyPolling[dev->qat.devId]) {
         g_cyPolling[dev->qat.devId] = 1;
+    #endif
 
     	status = icp_sal_CyPollInstance(dev->qat.handle, 0);
     	if (status != CPA_STATUS_SUCCESS && status != CPA_STATUS_RETRY) {
@@ -580,8 +573,10 @@ int IntelQaPoll(WC_ASYNC_DEV* dev)
     		ret = -1;
     	}
 
+    #ifdef QAT_USE_POLLING_CHECK
         g_cyPolling[dev->qat.devId] = 0;
     }
+    #endif
 #else
     (void)dev;
 #endif
@@ -649,7 +644,7 @@ static INLINE int IntelQaHandleCpaStatus(WC_ASYNC_DEV* dev, CpaStatus status,
         #ifndef WC_NO_ASYNC_THREADING
             wc_AsyncThreadYield();
         #else
-            OS_SLEEP(10);
+            wc_AsyncSleep(10);
         #endif
         }
         retry = 1;
@@ -1339,15 +1334,17 @@ static void IntelQaSymCipherFree(WC_ASYNC_DEV* dev,
         XMEMSET(opData, 0, sizeof(CpaCySymOpData));
     }
     if (pDstBuffer) {
-        if (pDstBuffer->pBuffers->pData) {
-            XFREE(pDstBuffer->pBuffers->pData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
-            pDstBuffer->pBuffers->pData = NULL;
+        if (pDstBuffer->pBuffers) {
+            if (pDstBuffer->pBuffers->pData) {
+                XFREE(pDstBuffer->pBuffers->pData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+                pDstBuffer->pBuffers->pData = NULL;
+            }
+            XMEMSET(pDstBuffer->pBuffers, 0, sizeof(CpaFlatBuffer));
         }
         if (pDstBuffer->pPrivateMetaData) {
             XFREE(pDstBuffer->pPrivateMetaData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
             pDstBuffer->pPrivateMetaData = NULL;
         }
-        XMEMSET(pDstBuffer->pBuffers, 0, sizeof(CpaFlatBuffer));
         XMEMSET(pDstBuffer, 0, sizeof(CpaBufferList));
     }
 

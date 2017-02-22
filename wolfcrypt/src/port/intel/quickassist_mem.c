@@ -396,11 +396,10 @@ void* IntelQaMalloc(size_t size, void* heap, int type
 #endif
 )
 {
-    int ret;
     void* ptr;
 
 #ifndef USE_QAE_THREAD_LS
-    ret = pthread_mutex_lock(&g_memLock);
+    int ret = pthread_mutex_lock(&g_memLock);
     if (ret != 0) {
         printf("Alloc: Error(%d) on mutex lock\n", ret);
         return NULL;
@@ -426,10 +425,8 @@ void IntelQaFree(void *ptr, void* heap, int type
 #endif
 )
 {
-    int ret;
-
 #ifndef USE_QAE_THREAD_LS
-    ret = pthread_mutex_lock(&g_memLock);
+    int ret = pthread_mutex_lock(&g_memLock);
     if (ret != 0) {
         printf("Free: Error(%d) on mutex lock\n", ret);
         return;
@@ -453,7 +450,6 @@ void* IntelQaRealloc(void *ptr, size_t size, void* heap, int type
 #endif
 )
 {
-    int ret;
     void* newPtr = NULL;
     void* origPtr = ptr;
     qaeMemHeader* header = NULL;
@@ -461,15 +457,15 @@ void* IntelQaRealloc(void *ptr, size_t size, void* heap, int type
     int newIsNuma = -1, ptrIsNuma = -1;
     size_t copySize = 0;
 
-    (void)heap;
-
 #ifndef USE_QAE_THREAD_LS
-    ret = pthread_mutex_lock(&g_memLock);
+    int ret = pthread_mutex_lock(&g_memLock);
     if (ret != 0) {
         printf("Realloc: Error(%d) on mutex lock\n", ret);
         return NULL;
     }
 #endif
+
+    (void)heap;
 
     if (ptr) {
         /* get header pointer and align */
