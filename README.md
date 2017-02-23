@@ -267,3 +267,47 @@ wolfSSL Client Benchmark 16384 bytes
 	Read              :    73.360 ms (   21.299 MBps)
 	Write             :    74.535 ms (   20.963 MBps)
 ```
+
+# Installation
+
+If using wolfAsyncCrypt repo directly some useful commands to setup links to wolfssl in relative directory:
+
+## Async Files
+```
+rm wolfcrypt/src/async.c
+ln -s ../../../wolfAsyncCrypt/wolfcrypt/src/async.c ./wolfcrypt/src/async.c
+rm wolfssl/wolfcrypt/async.h 
+ln -s ../../../wolfAsyncCrypt/wolfssl/wolfcrypt/async.h ./wolfssl/wolfcrypt/async.h
+```
+
+## Intel QuickAssist Port Files
+```
+rm wolfcrypt/src/port/intel/quickassist.c
+ln -s ../../../../../wolfAsyncCrypt/wolfcrypt/src/port/intel/quickassist.c ./wolfcrypt/src/port/intel/quickassist.c
+rm wolfcrypt/src/port/intel/quickassist_mem.c
+ln -s ../../../../../wolfAsyncCrypt/wolfcrypt/src/port/intel/quickassist_mem.c ./wolfcrypt/src/port/intel/quickassist_mem.c
+
+mkdir wolfssl/wolfcrypt/port/intel
+rm wolfssl/wolfcrypt/port/intel/quickassist.h
+ln -s ../../../../../wolfAsyncCrypt/wolfssl/wolfcrypt/port/intel/quickassist.h ./wolfssl/wolfcrypt/port/intel/quickassist.h
+rm wolfssl/wolfcrypt/port/intel/quickassist_mem.h
+ln -s ../../../../../wolfAsyncCrypt/wolfssl/wolfcrypt/port/intel/quickassist_mem.h ./wolfssl/wolfcrypt/port/intel/quickassist_mem.h
+
+rm wolfcrypt/src/port/intel/README.md
+ln -s ../../../../../wolfAsyncCrypt/wolfcrypt/src/port/intel/README.md ./wolfcrypt/src/port/intel/README.md
+```
+
+## Cavium Nitrox Port Files
+```
+rm wolfcrypt/src/port/cavium/cavium_nitrox.c
+ln -s ../../../../../wolfAsyncCrypt/wolfcrypt/src/port/cavium/cavium_nitrox.c ./wolfcrypt/src/port/cavium/cavium_nitrox.c
+
+mkdir wolfssl/wolfcrypt/port/cavium
+rm ./wolfssl/wolfcrypt/port/cavium/cavium_nitrox.h
+ln -s ../../../../../wolfAsyncCrypt/wolfssl/wolfcrypt/port/cavium/cavium_nitrox.h ./wolfssl/wolfcrypt/port/cavium/cavium_nitrox.h
+
+rm wolfcrypt/src/port/cavium/README.md
+ln -s ../../../../../wolfAsyncCrypt/wolfcrypt/src/port/cavium/README.md ./wolfcrypt/src/port/cavium/README.md
+```
+
+Then a wolfssl `make dist` will include actual files.
