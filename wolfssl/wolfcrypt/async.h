@@ -248,6 +248,56 @@ struct WC_ASYNC_DEV;
     #endif
 #endif /* WC_ASYNC_THRESH_NONE */
 
+/* Overrides to allow disabling async support per alorithm */
+#ifndef WC_ASYNC_NO_CRYPT
+    #ifndef WC_ASYNC_NO_ARC4
+        #define WC_ASYNC_ENABLE_ARC4
+    #endif
+    #ifndef WC_ASYNC_NO_AES
+        #define WC_ASYNC_ENABLE_AES
+    #endif
+    #ifndef WC_ASYNC_NO_3DES
+        #define WC_ASYNC_ENABLE_3DES
+    #endif
+#endif /* WC_ASYNC_NO_CRYPT */
+#ifndef WC_ASYNC_NO_PKI
+    #ifndef WC_ASYNC_NO_RSA
+        #define WC_ASYNC_ENABLE_RSA
+    #endif
+    #ifndef WC_ASYNC_NO_ECC
+        #define WC_ASYNC_ENABLE_ECC
+    #endif
+    #ifndef WC_ASYNC_NO_DH
+        #define WC_ASYNC_ENABLE_DH
+    #endif
+#endif /* WC_ASYNC_NO_PKI */
+#ifndef WC_ASYNC_NO_HASH
+    #ifndef WC_ASYNC_NO_SHA512
+        #define WC_ASYNC_ENABLE_SHA512
+    #endif
+    #ifndef WC_ASYNC_NO_SHA384
+        #define WC_ASYNC_ENABLE_SHA384
+    #endif
+    #ifndef WC_ASYNC_NO_SHA256
+        #define WC_ASYNC_ENABLE_SHA256
+    #endif
+    #ifndef WC_ASYNC_NO_SHA224
+        #define WC_ASYNC_ENABLE_SHA224
+    #endif
+    #ifndef WC_ASYNC_NO_SHA
+        #define WC_ASYNC_ENABLE_SHA
+    #endif
+    #ifndef WC_ASYNC_NO_MD5
+        #define WC_ASYNC_ENABLE_MD5
+    #endif
+    #ifndef WC_ASYNC_NO_HMAC
+        #define WC_ASYNC_ENABLE_HMAC
+    #endif
+#endif /* WC_ASYNC_NO_HASH */
+#ifndef WC_ASYNC_NO_RNG
+    #define WC_ASYNC_ENABLE_RNG
+#endif
+
 
 /* async marker values */
 #define WOLFSSL_ASYNC_MARKER_INVALID 0x0
