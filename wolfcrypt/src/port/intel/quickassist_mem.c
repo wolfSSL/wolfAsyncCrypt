@@ -70,6 +70,9 @@
 #define PAGE_SHIFT          13
 #define PAGE_SIZE           (1UL << PAGE_SHIFT)
 #define PAGE_MASK           (~(PAGE_SIZE-1))
+#define SYSTEM_PAGE_SHIFT   12
+#define SYSTEM_PAGE_SIZE    (1UL << SYSTEM_PAGE_SHIFT)
+#define SYSTEM_PAGE_MASK    (~(SYSTEM_PAGE_SIZE-1))
 #define USER_MEM_OFFSET     (128)
 #define QAEM_MAGIC_NUM      0xABCD12345678ECDFUL
 #define WOLF_MAGIC_NUM      0xA576F6C6641736EBUL /* (0xA)WolfAsyn(0xB) */
@@ -149,7 +152,7 @@ typedef struct qae_dev_mem_info_s {
 
 #pragma pack(pop)
 
-
+#define QAE_NOT_NUMA_PAGE 0xFFFF
 typedef struct qaeMemHeader {
 #ifdef WOLFSSL_TRACK_MEMORY
     struct qaeMemHeader* next;
@@ -164,7 +167,7 @@ typedef struct qaeMemHeader {
     size_t size;
     int count;
     word16 type;
-    word16 isNuma;
+    word16 numa_page_offset; /* use QAE_NOT_NUMA_PAGE if not NUMA */
 } ALIGN16 qaeMemHeader;
 
 #ifdef WOLFSSL_TRACK_MEMORY
@@ -211,8 +214,9 @@ static int g_qaeMemFd = -1;
 #endif
 
 /* forward declarations */
-static void* qaeMemAllocNUMA(Cpa32U size, Cpa32U node, Cpa32U alignment);
-static void qaeMemFreeNUMA(void** ptr);
+static void* qaeMemAllocNUMA(Cpa32U size, Cpa32U node, Cpa32U alignment,
+    word16* p_page_offset);
+static void qaeMemFreeNUMA(void** ptr, word16 page_offset);
 
 static INLINE int qaeMemTypeIsNuma(int type)
 {
@@ -326,8 +330,8 @@ static void _qaeMemFree(void *ptr, void* heap, int type
 #endif
 
     /* free type */
-    if (header->isNuma) {
-        qaeMemFreeNUMA(&ptr);
+    if (header->numa_page_offset != QAE_NOT_NUMA_PAGE) {
+        qaeMemFreeNUMA(&ptr, header->numa_page_offset);
     }
     else {
         free(ptr);
@@ -345,6 +349,7 @@ static void* _qaeMemAlloc(size_t size, void* heap, int type
     qaeMemHeader* header = NULL;
     int isNuma;
     int alignment = ALIGNMENT_BASE;
+    word16 page_offset = QAE_NOT_NUMA_PAGE;
 
     /* make sure all allocations are aligned */
     if ((size % WOLF_HEADER_ALIGN) != 0) {
@@ -358,7 +363,8 @@ static void* _qaeMemAlloc(size_t size, void* heap, int type
     /* allocate type */
     if (isNuma) {
         /* Node is typically 0 */
-        ptr = qaeMemAllocNUMA(size + sizeof(qaeMemHeader), 0, alignment);
+        ptr = qaeMemAllocNUMA(size + sizeof(qaeMemHeader), 0, alignment,
+            &page_offset);
     }
     if (ptr == NULL) {
         isNuma = 0;
@@ -374,7 +380,7 @@ static void* _qaeMemAlloc(size_t size, void* heap, int type
         header->size = size;
         header->type = type;
         header->count = 1;
-        header->isNuma = isNuma;
+        header->numa_page_offset = page_offset;
 
     #ifdef WOLFSSL_TRACK_MEMORY
         if (pthread_mutex_lock(&g_memStatLock) == 0) {
@@ -505,7 +511,7 @@ void* IntelQaRealloc(void *ptr, size_t size, void* heap, int type
             ((size_t)ptr % WOLF_HEADER_ALIGN)) - sizeof(qaeMemHeader));
         if (header->magic == WOLF_MAGIC_NUM) {
             newIsNuma = qaeMemTypeIsNuma(type);
-            ptrIsNuma = header->isNuma;
+            ptrIsNuma = (header->numa_page_offset != QAE_NOT_NUMA_PAGE) ? 1 : 0;
 
             /* for non-NUMA, treat as normal REALLOC */
             if (newIsNuma == 0 && ptrIsNuma == 0) {
@@ -681,6 +687,7 @@ static CpaStatus userMemListAdd(qae_dev_mem_info_t *pMemInfo)
     }
     g_pUserMemList[g_userMemListCount] = pMemInfoEx;
     g_avail_size[g_userMemListCount] = pMemInfoEx->mem_info.available_size;
+    g_lastIndexBySize = g_userMemListCount;
     g_userMemListCount++;
     return CPA_STATUS_SUCCESS;
 }
@@ -728,14 +735,16 @@ static qae_dev_mem_info_t* userMemLookupBySize(Cpa32U size, int* pMemIdx)
     return NULL;
 }
 
-static qae_dev_mem_info_t* userMemLookupByVirtAddr(void* virt_addr, int* pMemIdx)
+static qae_dev_mem_info_t* userMemLookupByVirtAddr(void* virt_addr,
+    uint32_t page_offset, int* pMemIdx)
 {
     qae_dev_mem_info_ex_t *pMemInfoEx = NULL;
     void *pageVirtAddr;
     int memIdx;
 
     /* Find the base page virtual address */
-    pageVirtAddr = (void *)((QAE_UINT)virt_addr & PAGE_MASK);
+    pageVirtAddr = (void *)(((QAE_UINT)virt_addr & SYSTEM_PAGE_MASK) -
+        (page_offset << SYSTEM_PAGE_SHIFT));
     pMemInfoEx = (qae_dev_mem_info_ex_t*)pageVirtAddr;
 
     /* Find the index in g_pUserMemList stored directly in qae_dev_mem_info_ex_t */
@@ -745,9 +754,7 @@ static qae_dev_mem_info_t* userMemLookupByVirtAddr(void* virt_addr, int* pMemIdx
         return NULL;
     }
 
-    if (g_pUserMemList[memIdx]->mem_info.virt_addr > virt_addr ||
-            (byte*)g_pUserMemList[memIdx]->mem_info.virt_addr +
-                g_pUserMemList[memIdx]->mem_info.size <= (byte*)virt_addr) {
+    if (g_pUserMemList[memIdx] != pMemInfoEx) {
         printf("userMemIndex virtual address mismatch (memIdx = %d, %p)\n",
             memIdx, pageVirtAddr);
         return NULL;
@@ -816,7 +823,8 @@ static qae_dev_mem_info_t* userMemLookupBySize(Cpa32U size)
     return NULL;
 }
 
-static qae_dev_mem_info_t* userMemLookupByVirtAddr(void* virt_addr)
+static qae_dev_mem_info_t* userMemLookupByVirtAddr(void* virt_addr,
+    uint32_t page_offset)
 {
     qae_dev_mem_info_t *pCurr = NULL;
     for (pCurr = g_pUserMemListHead; pCurr != NULL; pCurr = pCurr->pNext) {
@@ -825,13 +833,15 @@ static qae_dev_mem_info_t* userMemLookupByVirtAddr(void* virt_addr)
             return pCurr;
         }
     }
+    (void)page_offset;
     return NULL;
 }
 
 #endif
 
 
-static void* qaeMemAllocNUMA(Cpa32U size, Cpa32U node, Cpa32U alignment)
+static void* qaeMemAllocNUMA(Cpa32U size, Cpa32U node, Cpa32U alignment,
+    word16* p_page_offset)
 {
     int ret = 0;
     qae_dev_mem_info_t* pMemInfo = NULL;
@@ -854,14 +864,6 @@ static void* qaeMemAllocNUMA(Cpa32U size, Cpa32U node, Cpa32U alignment)
         qaeMemInit();
     }
 
-#ifdef USE_QAE_STATIC_MEM
-    /* make sure allocation is not larger than page size allowed */
-    if (size + USER_MEM_OFFSET > PAGE_SIZE) {
-        printf("qaeMemAllocNUMA size %d warning! Max %lu\n", size, PAGE_SIZE);
-        /* allow anyways, but will leak */
-    }
-#endif
-
     if ( (pMemInfo = userMemLookupBySize(size + alignment
         #ifdef USE_QAE_STATIC_MEM
             , &memIdx
@@ -882,6 +884,9 @@ static void* qaeMemAllocNUMA(Cpa32U size, Cpa32U node, Cpa32U alignment)
         /* cache index's available size */
         g_avail_size[memIdx] = pMemInfo->available_size;
     #endif
+
+        *p_page_offset = (word16)((QAE_UINT)aligned_address >> SYSTEM_PAGE_SHIFT) -
+            ((QAE_UINT)pMemInfo->virt_addr >> SYSTEM_PAGE_SHIFT);
 
         return (void*)aligned_address;
     }
@@ -946,10 +951,12 @@ static void* qaeMemAllocNUMA(Cpa32U size, Cpa32U node, Cpa32U alignment)
     #endif
         return NULL;
     }
+
+    *p_page_offset = 0;
     return pVirtAddress;
 }
 
-static void qaeMemFreeNUMA(void** ptr)
+static void qaeMemFreeNUMA(void** ptr, word16 page_offset)
 {
     int ret = 0;
     qae_dev_mem_info_t *pMemInfo = NULL;
@@ -968,7 +975,7 @@ static void qaeMemFreeNUMA(void** ptr)
         return;
     }
 
-    if ((pMemInfo = userMemLookupByVirtAddr(pVirtAddress
+    if ((pMemInfo = userMemLookupByVirtAddr(pVirtAddress, page_offset
         #ifdef USE_QAE_STATIC_MEM
             , &memIdx
         #endif
@@ -1036,7 +1043,7 @@ QAE_PHYS_ADDR qaeVirtToPhysNUMA(void* pVirtAddress)
         return (QAE_PHYS_ADDR)0;
     }
 
-    pVirtPageAddress = ((int *)((((QAE_UINT)pVirtAddress)) & (PAGE_MASK)));
+    pVirtPageAddress = ((int *)((((QAE_UINT)pVirtAddress)) & (SYSTEM_PAGE_MASK)));
 
     offset = (QAE_UINT)pVirtAddress - (QAE_UINT)pVirtPageAddress;
     do {
@@ -1046,9 +1053,9 @@ QAE_PHYS_ADDR qaeVirtToPhysNUMA(void* pVirtAddress)
             (pMemInfo->virt_addr == pVirtPageAddress)) {
             break;
         }
-        pVirtPageAddress = (void*)((QAE_UINT)pVirtPageAddress - PAGE_SIZE);
+        pVirtPageAddress = (void*)((QAE_UINT)pVirtPageAddress - SYSTEM_PAGE_SIZE);
 
-        offset += PAGE_SIZE;
+        offset += SYSTEM_PAGE_SIZE;
      } while (pMemInfo->virt_addr != pVirtPageAddress);
 
      return (QAE_PHYS_ADDR)(pMemInfo->phy_addr + offset);
