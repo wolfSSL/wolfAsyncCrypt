@@ -694,8 +694,10 @@ static CpaStatus userMemListAdd(qae_dev_mem_info_t *pMemInfo)
 
 static void userMemListFree(qae_dev_mem_info_t *pMemInfo, int memIdx)
 {
-    if (memIdx < 0 || memIdx >= g_userMemListCount)
+    if (memIdx < 0 || memIdx >= g_userMemListCount ||
+            g_userMemListCount >= QAE_USER_MEM_MAX_COUNT) {
         return;
+    }
 
     if (memIdx < g_userMemListCount - 1) {
         /* Replace the deleted index with the last one */
