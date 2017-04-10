@@ -1947,11 +1947,13 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
                         word32 inSz = inOutSz - unalignedSz;
 
                         buffersSz[bufferCount] = inSz;
-                        buffers[bufferCount] = (byte*)XREALLOC((byte*)in,
-                            inSz, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+                        buffers[bufferCount] = (byte*)XMALLOC(inSz,
+                                    dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
                         if (buffers[bufferCount] == NULL) {
                             ret = MEMORY_E; goto exit;
                         }
+                        XMEMCPY(buffers[bufferCount], (byte*)in, inSz);
+
                         bufferCount++;
                         inOutSz -= inSz;
                         in += inSz;
