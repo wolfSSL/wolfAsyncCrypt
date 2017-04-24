@@ -757,12 +757,11 @@ int NitroxHmacFinal(Hmac* hmac, int type, byte* hash, word16 hashLen)
 }
 #endif /* !NO_HMAC */
 
-
-#if !defined(HAVE_HASHDRBG) && !defined(NO_RC4)
-void NitroxRngGenerateBlock(WC_RNG* rng, byte* output, word32 sz)
+int NitroxRngGenerateBlock(WC_RNG* rng, byte* output, word32 sz)
 {
+    int ret;
     wolfssl_word offset = 0;
-    word32      requestId;
+    CavReqId     requestId;
 
     while (sz > WOLFSSL_MAX_16BIT) {
         word16 slen = (word16)WOLFSSL_MAX_16BIT;
@@ -796,9 +795,9 @@ void NitroxRngGenerateBlock(WC_RNG* rng, byte* output, word32 sz)
             return ret;
         }
     }
-}
-#endif /* !defined(HAVE_HASHDRBG) && !defined(NO_RC4) */
 
+    return ret;
+}
 
 #endif /* WOLFSSL_ASYNC_CRYPT */
 

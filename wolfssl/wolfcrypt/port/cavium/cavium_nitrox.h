@@ -79,6 +79,7 @@ typedef struct CaviumNitroxDev {
 
 struct WOLF_EVENT;
 struct WC_ASYNC_DEV;
+struct WC_RNG;
 
 
 /* Wrapper API's */
@@ -153,9 +154,7 @@ WOLFSSL_LOCAL int NitroxCheckRequests(struct WC_ASYNC_DEV* dev,
                                                                 word16 hashLen);
 #endif /* NO_HMAC */
 
-#if !defined(HAVE_HASHDRBG) && !defined(NO_RC4)
-    WOLFSSL_API void NitroxRngGenerateBlock(WC_RNG* rng, byte* output, word32 sz);
-#endif
+WOLFSSL_API int NitroxRngGenerateBlock(struct WC_RNG* rng, byte* output, word32 sz);
 
 
 #endif /* HAVE_CAVIUM */
