@@ -109,11 +109,11 @@ WOLFSSL_LOCAL int NitroxCheckRequests(struct WC_ASYNC_DEV* dev,
     WOLFSSL_LOCAL int NitroxRsaPublicEncrypt(const byte* in, word32 inLen,
                                 byte* out, word32 outLen, struct RsaKey* key);
     WOLFSSL_LOCAL int NitroxRsaPrivateDecrypt(const byte* in, word32 inLen,
-                                byte* out, word32 outLen, struct RsaKey* key);
+                                byte* out, word32* outLen, struct RsaKey* key);
     WOLFSSL_LOCAL int NitroxRsaSSL_Sign(const byte* in, word32 inLen,
                                 byte* out, word32 outLen, struct RsaKey* key);
     WOLFSSL_LOCAL int NitroxRsaSSL_Verify(const byte* in, word32 inLen,
-                                byte* out, word32 outLen, struct RsaKey* key);
+                                byte* out, word32 *outLen, struct RsaKey* key);
 #endif /* !NO_RSA */
 
 #ifndef NO_AES
