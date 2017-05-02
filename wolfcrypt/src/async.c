@@ -325,7 +325,7 @@ int wolfAsync_HardwareStart(void)
     #ifdef HAVE_CAVIUM
         /* nothing to do */
     #elif defined(HAVE_INTEL_QA)
-        ret = IntelQaHardwareStart(QAT_PROCESS_NAME);
+        ret = IntelQaHardwareStart(QAT_PROCESS_NAME, QAT_LIMIT_DEV_ACCESS);
     #endif
 
     return ret;

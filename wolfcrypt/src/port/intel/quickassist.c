@@ -248,7 +248,7 @@ void IntelQaHardwareStop(void)
     printf("IntelQA: Stop\n");
 }
 
-int IntelQaHardwareStart(const char* process_name)
+int IntelQaHardwareStart(const char* process_name, int limitDevAccess)
 {
     int ret = 0, i;
     CpaStatus status;
@@ -266,7 +266,8 @@ int IntelQaHardwareStart(const char* process_name)
         return ASYNC_INIT_E;
     }
 
-    status = icp_sal_userStartMultiProcess(process_name, CPA_FALSE);
+    status = icp_sal_userStartMultiProcess(process_name,
+        limitDevAccess ? CPA_TRUE : CPA_FALSE);
     if (status != CPA_STATUS_SUCCESS) {
         printf("IntelQA: Could not start sal for user space! status %d\n",
                                                                         status);
@@ -406,7 +407,7 @@ int IntelQaInit(void* threadId)
         return BAD_MUTEX_E;
     }
 
-    ret = IntelQaHardwareStart(QAT_PROCESS_NAME);
+    ret = IntelQaHardwareStart(QAT_PROCESS_NAME, QAT_LIMIT_DEV_ACCESS);
     if (ret != 0) {
         pthread_mutex_unlock(&g_Hwlock);
         return ret;

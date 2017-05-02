@@ -48,15 +48,32 @@
 
 
 /* Tunable parameters */
-#define QAT_PROCESS_NAME "SSL"
-#define QAT_MAX_DEVICES  (1)  /* maximum number of QAT cards */
-#define QAT_MAX_PENDING  (20) /* maximum number of concurent operations */
-#define QAT_RETRY_LIMIT  (100)
+#ifndef QAT_PROCESS_NAME
+    #define QAT_PROCESS_NAME     "SSL"
+#endif
+#ifndef QAT_LIMIT_DEV_ACCESS
+    #define QAT_LIMIT_DEV_ACCESS CPA_FALSE
+#endif
+#ifndef QAT_MAX_DEVICES
+    #define QAT_MAX_DEVICES  (1)  /* maximum number of QAT cards */
+#endif
+#ifndef QAT_MAX_PENDING
+    #define QAT_MAX_PENDING  (20) /* maximum number of concurent operations */
+#endif
+#ifndef QAT_RETRY_LIMIT
+    #define QAT_RETRY_LIMIT  (100)
+#endif
 
 /* TODO: Tune this value to get best performance */
-#define WC_ASYNC_THRESH_AES_CBC     128
-#define WC_ASYNC_THRESH_AES_GCM     128
-#define WC_ASYNC_THRESH_DES3_CBC    128
+#ifndef WC_ASYNC_THRESH_AES_CBC
+    #define WC_ASYNC_THRESH_AES_CBC     128
+#endif
+#ifndef WC_ASYNC_THRESH_AES_GCM
+    #define WC_ASYNC_THRESH_AES_GCM     128
+#endif
+#ifndef WC_ASYNC_THRESH_DES3_CBC
+    #define WC_ASYNC_THRESH_DES3_CBC    128
+#endif
 
 /* Macros */
 #define INVALID_STATUS -256
@@ -174,7 +191,7 @@ typedef struct IntelQaDev {
 
 
 /* Interface */
-WOLFSSL_LOCAL int IntelQaHardwareStart(const char* process_name);
+WOLFSSL_LOCAL int IntelQaHardwareStart(const char* process_name, int limitDevAccess);
 WOLFSSL_LOCAL void IntelQaHardwareStop(void);
 
 WOLFSSL_LOCAL int IntelQaInit(void* threadId);
