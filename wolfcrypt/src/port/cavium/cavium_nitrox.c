@@ -53,6 +53,9 @@ int NitroxTranslateResponseCode(int ret)
         case ERR_REQ_TIMEOUT:
             ret = WC_TIMEOUT_E;
             break;
+        case ERR_DATA_LEN_INVALID:
+            ret = BAD_FUNC_ARG;
+            break;
         case 0:
             /* leave as-is */
             break;
@@ -247,10 +250,9 @@ static INLINE void ato16(const byte* c, word16* u16)
 }
 
 int NitroxRsaPrivateDecrypt(const byte* in, word32 inLen, byte* out,
-                            word32 outLen, RsaKey* key)
+                            word32* outLen, RsaKey* key)
 {
     word32 ret;
-    word16 outSz = (word16)outLen;
 
     if (key == NULL || in == NULL || out == NULL ||
                                             inLen != (word32)key->n.raw.len) {
@@ -261,11 +263,11 @@ int NitroxRsaPrivateDecrypt(const byte* in, word32 inLen, byte* out,
     ret = CspPkcs1v15CrtDec(key->asyncDev.nitrox.devId, CAVIUM_REQ_MODE,
         CAVIUM_SSL_GRP, CAVIUM_DPORT, BT2, key->n.raw.len, key->q.raw.buf,
         key->dQ.raw.buf, key->p.raw.buf, key->dP.raw.buf, key->u.raw.buf,
-        (byte*)in, &outSz, out, &key->asyncDev.nitrox.reqId);
+        (byte*)in, (Uint16*)outLen, out, &key->asyncDev.nitrox.reqId);
 #else
     ret = CspPkcs1v15CrtDec(CAVIUM_REQ_MODE, BT2, key->n.raw.len,
         key->q.raw.buf, key->dQ.raw.buf, key->p.raw.buf, key->dP.raw.buf,
-        key->u.raw.buf, (byte*)in, &outSz, out, &key->asyncDev.nitrox.reqId,
+        key->u.raw.buf, (byte*)in, &outLen, out, &key->asyncDev.nitrox.reqId,
         key->asyncDev.nitrox.devId);
 #endif
     ret = NitroxTranslateResponseCode(ret);
@@ -273,9 +275,9 @@ int NitroxRsaPrivateDecrypt(const byte* in, word32 inLen, byte* out,
         return ret;
     }
 
-    ato16((const byte*)&outSz, &outSz);
+    ato16((const byte*)outLen, (word16*)outLen);
 
-    return outSz;
+    return *outLen;
 }
 
 
@@ -310,10 +312,9 @@ int NitroxRsaSSL_Sign(const byte* in, word32 inLen, byte* out,
 
 
 int NitroxRsaSSL_Verify(const byte* in, word32 inLen, byte* out,
-                        word32 outLen, RsaKey* key)
+                        word32* outLen, RsaKey* key)
 {
     word32 ret;
-    word16 outSz = (word16)outLen;
 
     if (key == NULL || in == NULL || out == NULL || inLen != (word32)key->n.raw.len) {
         return BAD_FUNC_ARG;
@@ -322,11 +323,11 @@ int NitroxRsaSSL_Verify(const byte* in, word32 inLen, byte* out,
 #ifdef HAVE_CAVIUM_V
     ret = CspPkcs1v15Dec(key->asyncDev.nitrox.devId, CAVIUM_REQ_MODE,
         CAVIUM_SSL_GRP, CAVIUM_DPORT, BT1, key->n.raw.len, key->e.raw.len,
-        key->n.raw.buf, key->e.raw.buf, (byte*)in, &outSz, out,
+        key->n.raw.buf, key->e.raw.buf, (byte*)in, (Uint16*)outLen, out,
         &key->asyncDev.nitrox.reqId);
 #else
     ret = CspPkcs1v15Dec(CAVIUM_REQ_MODE, BT1, key->n.raw.len, key->e.raw.len,
-        key->n.raw.buf, key->e.raw.buf, (byte*)in, &outSz, out,
+        key->n.raw.buf, key->e.raw.buf, (byte*)in, &outLen, out,
         &key->asyncDev.nitrox.reqId, key->asyncDev.nitrox.devId);
 #endif
     ret = NitroxTranslateResponseCode(ret);
@@ -334,9 +335,9 @@ int NitroxRsaSSL_Verify(const byte* in, word32 inLen, byte* out,
         return ret;
     }
 
-    outSz = ntohs(outSz);
+    *outLen = ntohs(*outLen);
 
-    return outSz;
+    return *outLen;
 }
 #endif /* !NO_RSA */
 
@@ -757,12 +758,11 @@ int NitroxHmacFinal(Hmac* hmac, int type, byte* hash, word16 hashLen)
 }
 #endif /* !NO_HMAC */
 
-
-#if !defined(HAVE_HASHDRBG) && !defined(NO_RC4)
-void NitroxRngGenerateBlock(WC_RNG* rng, byte* output, word32 sz)
+int NitroxRngGenerateBlock(WC_RNG* rng, byte* output, word32 sz)
 {
+    int ret;
     wolfssl_word offset = 0;
-    word32      requestId;
+    CavReqId     requestId;
 
     while (sz > WOLFSSL_MAX_16BIT) {
         word16 slen = (word16)WOLFSSL_MAX_16BIT;
@@ -796,9 +796,9 @@ void NitroxRngGenerateBlock(WC_RNG* rng, byte* output, word32 sz)
             return ret;
         }
     }
-}
-#endif /* !defined(HAVE_HASHDRBG) && !defined(NO_RC4) */
 
+    return ret;
+}
 
 #endif /* WOLFSSL_ASYNC_CRYPT */
 
