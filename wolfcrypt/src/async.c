@@ -508,17 +508,23 @@ static int wolfAsync_CheckMultiReqBuf(WC_ASYNC_DEV* asyncDev,
     }
 
     /* Itterate event queue */
-    for (event = queue->head; event != NULL; event = event->next)
-    {
-        /* optional filter based on context */
-        if (context_filter == NULL || event->context == context_filter) {
-            if (event->type >= WOLF_EVENT_TYPE_ASYNC_FIRST &&
-                event->type <= WOLF_EVENT_TYPE_ASYNC_LAST)
-            {
+    for (event = queue->head; event != NULL; event = event->next) {
+        if (event->type >= WOLF_EVENT_TYPE_ASYNC_FIRST &&
+            event->type <= WOLF_EVENT_TYPE_ASYNC_LAST)
+        {
+            /* optional filter based on context */
+            if (context_filter == NULL || event->context == context_filter) {
                 /* find request */
-                for (i = 0; i < CAVIUM_MAX_POLL; i++) {
+                for (i = 0; i < multi_req->count; i++) {
                     if (event->reqId > 0 && event->reqId == multi_req->req[i].request_id) {
                         event->ret = NitroxTranslateResponseCode(multi_req->req[i].status);
+
+                        /* If not pending then mark as done */
+                        if (event->ret != WC_PENDING_E) {
+                            event->done = 1;
+                            event->pending = 0;
+                            event->reqId = 0;
+                        }
                         break;
                     }
                 }
@@ -562,8 +568,7 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
     if (flags & WOLF_POLL_FLAG_CHECK_HW) {
         /* check event queue */
         count = 0;
-        for (event = queue->head; event != NULL; event = event->next)
-        {
+        for (event = queue->head; event != NULL; event = event->next) {
             if (event->type >= WOLF_EVENT_TYPE_ASYNC_FIRST &&
                 event->type <= WOLF_EVENT_TYPE_ASYNC_LAST)
             {
@@ -578,15 +583,13 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
 
                     count++;
 
-                #if defined(HAVE_CAVIUM)
-                    /* Fill multi request status buffer */
+            #if defined(HAVE_CAVIUM)
+                    /* Add entry to multi-request buffer */
                     if (event->reqId > 0) {
                         multi_req.req[multi_req.count].request_id = event->reqId;
                         multi_req.count++;
                     }
-
-                    /* Note: event queue mutex is locked here, so make sure
-                    hardware doesn't try and lock event_queue */
+                    /* Submit filled multi-request query */
                     if (multi_req.count >= CAVIUM_MAX_POLL) {
                         ret = wolfAsync_CheckMultiReqBuf(asyncDev,
                                             queue, context_filter, &multi_req);
@@ -594,8 +597,8 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
                             break;
                         }
                     }
-                #elif defined(HAVE_INTEL_QA)
-
+            #else
+                #if defined(HAVE_INTEL_QA)
                     /* poll QAT hardware and use callbacks to populate event */
                     ret = IntelQaPoll(asyncDev);
                     if (ret != 0) {
@@ -622,12 +625,13 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
                         event->reqId = 0;
                     #endif
                     }
+            #endif
                 }
             }
         } /* for */
 
-        /* check remainder */
     #if defined(HAVE_CAVIUM)
+        /* Submit partial multi-request query (if no prev errors) */
         if (ret == 0 && multi_req.count > 0) {
             ret = wolfAsync_CheckMultiReqBuf(asyncDev,
                                 queue, context_filter, &multi_req);
@@ -637,8 +641,7 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
 
     /* process event queue */
     count = 0;
-    for (event = queue->head; event != NULL; event = event->next)
-    {
+    for (event = queue->head; event != NULL; event = event->next) {
         if (event->type >= WOLF_EVENT_TYPE_ASYNC_FIRST &&
             event->type <= WOLF_EVENT_TYPE_ASYNC_LAST)
         {

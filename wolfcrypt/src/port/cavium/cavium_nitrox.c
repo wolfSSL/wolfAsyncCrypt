@@ -43,11 +43,17 @@
 
 static CspHandle mLastDevHandle = INVALID_DEVID;
 
+#ifndef NITROX_MAX_BUF_LEN
+    /* max buffer pool size is 32768, but need to leave room for request */
+    #define NITROX_MAX_BUF_LEN (32768U / 2)
+#endif
+
 int NitroxTranslateResponseCode(int ret)
 {
     switch (ret) {
         case EAGAIN:
         case ERR_REQ_PENDING:
+        case REQUEST_PENDING:
             ret = WC_PENDING_E;
             break;
         case ERR_REQ_TIMEOUT:
@@ -57,10 +63,11 @@ int NitroxTranslateResponseCode(int ret)
             ret = BAD_FUNC_ARG;
             break;
         case 0:
-            /* leave as-is */
+        case 1:
+            ret = 0; /* treat as success */
             break;
         default:
-            printf("NitroxTranslateResponseCode Unknown ret=%x\n", ret);
+            printf("NitroxTranslateResponseCode Unknown ret=0x%x\n", ret);
             ret = ASYNC_INIT_E;
     }
     return ret;
@@ -218,7 +225,7 @@ int NitroxRsaExptMod(const byte* in, word32 inLen,
 int NitroxRsaPublicEncrypt(const byte* in, word32 inLen, byte* out,
                            word32 outLen, RsaKey* key)
 {
-    word32 ret;
+    int ret;
 
     if (key == NULL || in == NULL || out == NULL ||
                                             outLen < (word32)key->n.raw.len) {
@@ -252,7 +259,7 @@ static INLINE void ato16(const byte* c, word16* u16)
 int NitroxRsaPrivateDecrypt(const byte* in, word32 inLen, byte* out,
                             word32* outLen, RsaKey* key)
 {
-    word32 ret;
+    int ret;
 
     if (key == NULL || in == NULL || out == NULL ||
                                             inLen != (word32)key->n.raw.len) {
@@ -284,7 +291,7 @@ int NitroxRsaPrivateDecrypt(const byte* in, word32 inLen, byte* out,
 int NitroxRsaSSL_Sign(const byte* in, word32 inLen, byte* out,
                       word32 outLen, RsaKey* key)
 {
-    word32 ret;
+    int ret;
 
     if (key == NULL || in == NULL || out == NULL || inLen == 0 || outLen <
                                                      (word32)key->n.raw.len) {
@@ -314,7 +321,7 @@ int NitroxRsaSSL_Sign(const byte* in, word32 inLen, byte* out,
 int NitroxRsaSSL_Verify(const byte* in, word32 inLen, byte* out,
                         word32* outLen, RsaKey* key)
 {
-    word32 ret;
+    int ret;
 
     if (key == NULL || in == NULL || out == NULL || inLen != (word32)key->n.raw.len) {
         return BAD_FUNC_ARG;
@@ -370,8 +377,8 @@ int NitroxAesCbcEncrypt(Aes* aes, byte* out, const byte* in, word32 length)
         return ret;
     }
 
-    while (length > WOLFSSL_MAX_16BIT) {
-        word16 slen = (word16)WOLFSSL_MAX_16BIT;
+    while (length > NITROX_MAX_BUF_LEN) {
+        word16 slen = (word16)NITROX_MAX_BUF_LEN;
     #ifdef HAVE_CAVIUM_V
         ret = CspEncryptAes(aes->asyncDev.nitrox.devId, CAVIUM_BLOCKING,
             DMA_DIRECT_DIRECT, CAVIUM_SSL_GRP, CAVIUM_DPORT,
@@ -389,8 +396,8 @@ int NitroxAesCbcEncrypt(Aes* aes, byte* out, const byte* in, word32 length)
         if (ret != 0) {
             return ret;
         }
-        length -= WOLFSSL_MAX_16BIT;
-        offset += WOLFSSL_MAX_16BIT;
+        length -= NITROX_MAX_BUF_LEN;
+        offset += NITROX_MAX_BUF_LEN;
         XMEMCPY(aes->reg, out + offset - AES_BLOCK_SIZE, AES_BLOCK_SIZE);
     }
     if (length) {
@@ -429,8 +436,8 @@ int NitroxAesCbcDecrypt(Aes* aes, byte* out, const byte* in, word32 length)
         return ret;
     }
 
-    while (length > WOLFSSL_MAX_16BIT) {
-        word16 slen = (word16)WOLFSSL_MAX_16BIT;
+    while (length > NITROX_MAX_BUF_LEN) {
+        word16 slen = (word16)NITROX_MAX_BUF_LEN;
         XMEMCPY(aes->tmp, in + offset + slen - AES_BLOCK_SIZE, AES_BLOCK_SIZE);
     #ifdef HAVE_CAVIUM_V
         ret = CspDecryptAes(aes->asyncDev.nitrox.devId, CAVIUM_BLOCKING,
@@ -449,8 +456,8 @@ int NitroxAesCbcDecrypt(Aes* aes, byte* out, const byte* in, word32 length)
         if (ret != 0) {
             return ret;
         }
-        length -= WOLFSSL_MAX_16BIT;
-        offset += WOLFSSL_MAX_16BIT;
+        length -= NITROX_MAX_BUF_LEN;
+        offset += NITROX_MAX_BUF_LEN;
         XMEMCPY(aes->reg, aes->tmp, AES_BLOCK_SIZE);
     }
     if (length) {
@@ -496,8 +503,8 @@ void NitroxArc4Process(Arc4* arc4, byte* out, const byte* in, word32 length)
     int ret;
     wolfssl_word offset = 0;
 
-    while (length > WOLFSSL_MAX_16BIT) {
-        word16 slen = (word16)WOLFSSL_MAX_16BIT;
+    while (length > NITROX_MAX_BUF_LEN) {
+        word16 slen = (word16)NITROX_MAX_BUF_LEN;
         ret = CspEncryptRc4(CAVIUM_BLOCKING,
             arc4->asyncDev.nitrox.contextHandle, CAVIUM_UPDATE, slen,
             (byte*)in + offset, out + offset,
@@ -506,8 +513,8 @@ void NitroxArc4Process(Arc4* arc4, byte* out, const byte* in, word32 length)
         if (ret != 0) {
             return ret;
         }
-        length -= WOLFSSL_MAX_16BIT;
-        offset += WOLFSSL_MAX_16BIT;
+        length -= NITROX_MAX_BUF_LEN;
+        offset += NITROX_MAX_BUF_LEN;
     }
     if (length) {
         word16 slen = (word16)length;
@@ -530,8 +537,8 @@ int NitroxDes3CbcEncrypt(Des3* des3, byte* out, const byte* in, word32 length)
     wolfssl_word offset = 0;
     int ret;
 
-    while (length > WOLFSSL_MAX_16BIT) {
-        word16 slen = (word16)WOLFSSL_MAX_16BIT;
+    while (length > NITROX_MAX_BUF_LEN) {
+        word16 slen = (word16)NITROX_MAX_BUF_LEN;
     #ifdef HAVE_CAVIUM_V
         ret = CspEncrypt3Des(des3->asyncDev.nitrox.devId, CAVIUM_BLOCKING,
             DMA_DIRECT_DIRECT, CAVIUM_SSL_GRP, CAVIUM_DPORT,
@@ -549,8 +556,8 @@ int NitroxDes3CbcEncrypt(Des3* des3, byte* out, const byte* in, word32 length)
         if (ret != 0) {
             return ret;
         }
-        length -= WOLFSSL_MAX_16BIT;
-        offset += WOLFSSL_MAX_16BIT;
+        length -= NITROX_MAX_BUF_LEN;
+        offset += NITROX_MAX_BUF_LEN;
         XMEMCPY(des3->reg, out + offset - DES_BLOCK_SIZE, DES_BLOCK_SIZE);
     }
     if (length) {
@@ -582,8 +589,8 @@ int NitroxDes3CbcDecrypt(Des3* des3, byte* out, const byte* in, word32 length)
     wolfssl_word offset = 0;
     int ret;
 
-    while (length > WOLFSSL_MAX_16BIT) {
-        word16 slen = (word16)WOLFSSL_MAX_16BIT;
+    while (length > NITROX_MAX_BUF_LEN) {
+        word16 slen = (word16)NITROX_MAX_BUF_LEN;
         XMEMCPY(des3->tmp, in + offset + slen - DES_BLOCK_SIZE, DES_BLOCK_SIZE);
     #ifdef HAVE_CAVIUM_V
         ret = CspDecrypt3Des(des3->asyncDev.nitrox.devId, CAVIUM_BLOCKING,
@@ -602,8 +609,8 @@ int NitroxDes3CbcDecrypt(Des3* des3, byte* out, const byte* in, word32 length)
         if (ret != 0) {
             return ret;
         }
-        length -= WOLFSSL_MAX_16BIT;
-        offset += WOLFSSL_MAX_16BIT;
+        length -= NITROX_MAX_BUF_LEN;
+        offset += NITROX_MAX_BUF_LEN;
         XMEMCPY(des3->reg, des3->tmp, DES_BLOCK_SIZE);
     }
     if (length) {
@@ -695,7 +702,7 @@ int NitroxHmacUpdate(Hmac* hmac, const byte* msg, word32 length)
     word32 total;
     byte*  tmp;
 
-    if (length > WOLFSSL_MAX_16BIT) {
+    if (length > NITROX_MAX_BUF_LEN) {
         WOLFSSL_MSG("Too big msg for cavium hmac");
         return BUFFER_E;
     }
@@ -706,7 +713,7 @@ int NitroxHmacUpdate(Hmac* hmac, const byte* msg, word32 length)
     }
 
     total = add + hmac->dataLen;
-    if (total > WOLFSSL_MAX_16BIT) {
+    if (total > NITROX_MAX_BUF_LEN) {
         WOLFSSL_MSG("Too big msg for cavium hmac");
         return BUFFER_E;
     }
@@ -764,8 +771,8 @@ int NitroxRngGenerateBlock(WC_RNG* rng, byte* output, word32 sz)
     wolfssl_word offset = 0;
     CavReqId     requestId;
 
-    while (sz > WOLFSSL_MAX_16BIT) {
-        word16 slen = (word16)WOLFSSL_MAX_16BIT;
+    while (sz > NITROX_MAX_BUF_LEN) {
+        word16 slen = (word16)NITROX_MAX_BUF_LEN;
     #ifdef HAVE_CAVIUM_V
         ret = CspTrueRandom(rng->asyncDev.nitrox.devId, CAVIUM_BLOCKING,
             DMA_DIRECT_DIRECT, CAVIUM_SSL_GRP, CAVIUM_DPORT, slen,
@@ -778,8 +785,8 @@ int NitroxRngGenerateBlock(WC_RNG* rng, byte* output, word32 sz)
         if (ret != 0) {
             return ret;
         }
-        sz     -= WOLFSSL_MAX_16BIT;
-        offset += WOLFSSL_MAX_16BIT;
+        sz     -= NITROX_MAX_BUF_LEN;
+        offset += NITROX_MAX_BUF_LEN;
     }
     if (sz) {
         word16 slen = (word16)sz;
