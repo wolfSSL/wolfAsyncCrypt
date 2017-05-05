@@ -6,7 +6,7 @@
  *
  * wolfSSL is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * the Free Software Foundation; either version 3 of the License, or
  * (at your option) any later version.
  *
  * wolfSSL is distributed in the hope that it will be useful,
@@ -33,25 +33,57 @@
 #include <wolfssl/wolfcrypt/async.h>
 
 
+static WC_ASYNC_DEV* wolfAsync_GetDev(WOLF_EVENT* event)
+{
+    WC_ASYNC_DEV* dev = NULL;
+
+    if (event && event->context) {
+        switch (event->type) {
+            /* context is WOLFSSL* */
+            case WOLF_EVENT_TYPE_ASYNC_WOLFSSL:
+            {
+                WOLFSSL* ssl = (WOLFSSL*)event->context;
+                dev = ssl->async.dev;
+                break;
+            }
+
+            /* context is WC_ASYNC_DEV */
+            case WOLF_EVENT_TYPE_ASYNC_WOLFCRYPT:
+            {
+                dev = (WC_ASYNC_DEV*)event->context;
+                break;
+            }
+
+            case WOLF_EVENT_TYPE_NONE:
+            default:
+                WOLFSSL_MSG("Unhandled event->type context!");
+                dev = NULL;
+                break;
+        }
+    }
+
+    return dev;
+}
+
+
 #if defined(WOLFSSL_ASYNC_CRYPT_TEST)
 
 /* Allow way to have async test code included, and disabled at run-time */
 static int wolfAsyncTestDisabled = 0; /* default off */
 
 
-static int wolfAsync_crypt_test(WOLF_EVENT* event)
+static int wolfAsync_crypt_test(WC_ASYNC_DEV* asyncDev)
 {
     int ret = 0;
-    AsyncCryptDev* asyncDev = (AsyncCryptDev*)event->context;
-    AsyncCryptTestDev* testDev;
+    WC_ASYNC_TEST* testDev;
 
     if (asyncDev == NULL) {
         return BAD_FUNC_ARG;
     }
-    testDev = &asyncDev->dev;
+    testDev = &asyncDev->test;
 
     switch(testDev->type) {
-    #if defined(HAVE_ECC)
+#ifdef HAVE_ECC
         case ASYNC_TEST_ECC_MAKE:
         {
             ret = wc_ecc_make_key_ex(
@@ -62,42 +94,60 @@ static int wolfAsync_crypt_test(WOLF_EVENT* event)
             );
             break;
         }
+    #ifdef HAVE_ECC_SIGN
         case ASYNC_TEST_ECC_SIGN:
         {
-            ret = wc_ecc_sign_hash(
+            ret = wc_ecc_sign_hash_ex(
                 testDev->eccSign.in,
                 testDev->eccSign.inSz,
-                testDev->eccSign.out,
-                testDev->eccSign.outSz,
                 (WC_RNG*)testDev->eccSign.rng,
-                (ecc_key*)testDev->eccSign.key
+                (ecc_key*)testDev->eccSign.key,
+                (mp_int*)testDev->eccSign.r,
+                (mp_int*)testDev->eccSign.s
             );
             break;
         }
+    #endif /* HAVE_ECC_SIGN */
+    #ifdef HAVE_ECC_VERIFY
         case ASYNC_TEST_ECC_VERIFY:
         {
-            ret = wc_ecc_verify_hash(
-                testDev->eccVerify.in,
-                testDev->eccVerify.inSz,
-                testDev->eccVerify.out,
-                testDev->eccVerify.outSz,
+            ret = wc_ecc_verify_hash_ex(
+                (mp_int*)testDev->eccVerify.r,
+                (mp_int*)testDev->eccVerify.s,
+                testDev->eccVerify.hash,
+                testDev->eccVerify.hashlen,
                 testDev->eccVerify.stat,
                 (ecc_key*)testDev->eccVerify.key
             );
             break;
         }
+    #endif /* HAVE_ECC_VERIFY */
+    #ifdef HAVE_ECC_DHE
         case ASYNC_TEST_ECC_SHARED_SEC:
         {
-            ret = wc_ecc_shared_secret(
+            ret = wc_ecc_shared_secret_gen(
                 (ecc_key*)testDev->eccSharedSec.private_key,
-                (ecc_key*)testDev->eccSharedSec.public_key,
+                (ecc_point*)testDev->eccSharedSec.public_point,
                 testDev->eccSharedSec.out,
                 testDev->eccSharedSec.outLen
             );
             break;
         }
-    #endif /* HAVE_ECC */
-    #if !defined(NO_RSA)
+    #endif /* HAVE_ECC_DHE */
+#endif /* HAVE_ECC */
+#ifndef NO_RSA
+    #ifdef WOLFSSL_KEY_GEN
+        case ASYNC_TEST_RSA_MAKE:
+        {
+            ret = wc_MakeRsaKey(
+                (RsaKey*)testDev->rsaMake.key,
+                testDev->rsaMake.size,
+                testDev->rsaMake.e,
+                (WC_RNG*)testDev->rsaMake.rng
+            );
+            break;
+        }
+    #endif /* WOLFSSL_KEY_GEN */
         case ASYNC_TEST_RSA_FUNC:
         {
             ret = wc_RsaFunction(
@@ -111,48 +161,188 @@ static int wolfAsync_crypt_test(WOLF_EVENT* event)
             );
             break;
         }
-    #endif /* !NO_RSA */
+#endif /* !NO_RSA */
+#ifndef NO_DH
+        case ASYNC_TEST_DH_AGREE:
+        {
+            ret = wc_DhAgree(
+                (DhKey*)testDev->dhAgree.key,
+                testDev->dhAgree.agree,
+                testDev->dhAgree.agreeSz,
+                testDev->dhAgree.priv,
+                testDev->dhAgree.privSz,
+                testDev->dhAgree.otherPub,
+                testDev->dhAgree.pubSz
+            );
+            break;
+        }
+        case ASYNC_TEST_DH_GEN:
+        {
+            ret = wc_DhGenerateKeyPair(
+                (DhKey*)testDev->dhGen.key,
+                (WC_RNG*)testDev->dhGen.rng,
+                testDev->dhGen.priv,
+                testDev->dhGen.privSz,
+                testDev->dhGen.pub,
+                testDev->dhGen.pubSz
+            );
+            break;
+        }
+#endif /* !NO_DH */
+#ifndef NO_AES
+        case ASYNC_TEST_AES_CBC_ENCRYPT:
+        {
+            ret = wc_AesCbcEncrypt(
+                (Aes*)testDev->aes.aes,
+                testDev->aes.out,
+                testDev->aes.in,
+                testDev->aes.sz
+            );
+            break;
+        }
+    #ifdef HAVE_AES_DECRYPT
+        case ASYNC_TEST_AES_CBC_DECRYPT:
+        {
+            ret = wc_AesCbcDecrypt(
+                (Aes*)testDev->aes.aes,
+                testDev->aes.out,
+                testDev->aes.in,
+                testDev->aes.sz
+            );
+            break;
+        }
+    #endif /* HAVE_AES_DECRYPT */
+
+    #ifdef HAVE_AESGCM
+        case ASYNC_TEST_AES_GCM_ENCRYPT:
+        {
+            ret = wc_AesGcmEncrypt(
+                (Aes*)testDev->aes.aes,
+                testDev->aes.out,
+                testDev->aes.in,
+                testDev->aes.sz,
+                testDev->aes.iv,
+                testDev->aes.ivSz,
+                testDev->aes.authTag,
+                testDev->aes.authTagSz,
+                testDev->aes.authIn,
+                testDev->aes.authInSz
+            );
+            break;
+        }
+        #ifdef HAVE_AES_DECRYPT
+        case ASYNC_TEST_AES_GCM_DECRYPT:
+        {
+            ret = wc_AesGcmDecrypt(
+                (Aes*)testDev->aes.aes,
+                testDev->aes.out,
+                testDev->aes.in,
+                testDev->aes.sz,
+                testDev->aes.iv,
+                testDev->aes.ivSz,
+                testDev->aes.authTag,
+                testDev->aes.authTagSz,
+                testDev->aes.authIn,
+                testDev->aes.authInSz
+            );
+            break;
+        }
+        #endif /* HAVE_AES_DECRYPT */
+    #endif /* HAVE_AESGCM */
+#endif /* !NO_AES */
+#ifndef NO_DES3
+        case ASYNC_TEST_DES3_CBC_ENCRYPT:
+        {
+            ret = wc_Des3_CbcEncrypt(
+                (Des3*)testDev->des.des,
+                testDev->des.out,
+                testDev->des.in,
+                testDev->des.sz
+            );
+            break;
+        }
+        case ASYNC_TEST_DES3_CBC_DECRYPT:
+        {
+            ret = wc_Des3_CbcDecrypt(
+                (Des3*)testDev->des.des,
+                testDev->des.out,
+                testDev->des.in,
+                testDev->des.sz
+            );
+            break;
+        }
+#endif /* !NO_DES3 */
         default:
             WOLFSSL_MSG("Invalid async crypt test type!");
             ret = BAD_FUNC_ARG;
             break;
     };
 
-    /* Reset test struct */
-    //XMEMSET(testDev, 0, sizeof(AsyncCryptTestDev));
+    /* Reset test type */
     testDev->type = ASYNC_TEST_NONE;
-
-    /* Mark event as done for testing */
-    event->done = 1;
-    event->pending = 0;
 
     return ret;
 }
-#endif /* WOLFSSL_ASYNC_CRYPT_TEST && !WOLFCRYPT_ONLY */
+#endif /* WOLFSSL_ASYNC_CRYPT_TEST */
+
+int wolfAsync_DevOpenThread(int *pDevId, void* threadId)
+{
+    int ret = 0;
+    int devId = INVALID_DEVID;
+
+#ifdef HAVE_CAVIUM
+    ret = NitroxOpenDevice(CAVIUM_DIRECT, CAVIUM_DEV_ID);
+    if (ret >= 0)
+        devId = ret;
+    else
+        ret = ASYNC_INIT_E;
+#elif defined(HAVE_INTEL_QA)
+    ret = IntelQaInit(threadId);
+    if (ret >= 0)
+        devId = ret;
+    else
+        ret = ASYNC_INIT_E;
+#elif defined(WOLFSSL_ASYNC_CRYPT_TEST)
+    if (!wolfAsyncTestDisabled) {
+        /* For test use any value 0 or greater */
+        devId = 0;
+    }
+#endif
+
+    (void)threadId;
+
+    /* return devId if requested */
+    if (*pDevId)
+        *pDevId = devId;
+
+    return ret;
+}
+
+int wolfAsync_HardwareStart(void)
+{
+    int ret = 0;
+
+    #ifdef HAVE_CAVIUM
+        /* nothing to do */
+    #elif defined(HAVE_INTEL_QA)
+        ret = IntelQaHardwareStart(QAT_PROCESS_NAME, QAT_LIMIT_DEV_ACCESS);
+    #endif
+
+    return ret;
+}
+
+void wolfAsync_HardwareStop(void)
+{
+    #ifdef HAVE_CAVIUM
+        /* nothing to do */
+    #elif defined(HAVE_INTEL_QA)
+        IntelQaHardwareStop();
+    #endif
+}
 
 int wolfAsync_DevOpen(int *devId)
 {
-    int ret = BAD_FUNC_ARG;
-
-    if (devId) {
-    #ifdef HAVE_CAVIUM
-        *devId = NitroxOpenDevice(CAVIUM_DIRECT, CAVIUM_DEV_ID);
-        if (*devId >= 0) {
-            ret = 0;
-        }
-    #elif defined(HAVE_INTEL_QA)
-        /* TODO: Add device open for Intel QuickAssist */
-        ret = 0;
-    #elif defined(WOLFSSL_ASYNC_CRYPT_TEST)
-        if (!wolfAsyncTestDisabled) {
-            /* For test wse any value != INVALID_DEVID */
-            *devId = 0;
-        }
-        ret = 0;
-    #endif
-    }
-
-    return ret;
+    return wolfAsync_DevOpenThread(devId, NULL);
 }
 
 void wolfAsync_DevClose(int *devId)
@@ -161,49 +351,70 @@ void wolfAsync_DevClose(int *devId)
     #ifdef HAVE_CAVIUM
         NitroxCloseDevice(*devId);
     #elif defined(HAVE_INTEL_QA)
-        /* TODO: Add device close for Intel QuickAssist */
+        IntelQaDeInit(*devId);
     #endif
         *devId = INVALID_DEVID;
     }
 }
 
-int wolfAsync_DevCtxInit(AsyncCryptDev* asyncDev, int marker, int devId)
+int wolfAsync_DevCtxInit(WC_ASYNC_DEV* asyncDev, word32 marker, void* heap,
+    int devId)
 {
-    int ret = BAD_FUNC_ARG;
+    int ret = 0;
 
     if (asyncDev == NULL) {
-        return ret;
+        return BAD_FUNC_ARG;
     }
 
-    (void)devId;
+    /* always clear async device context */
+    XMEMSET(asyncDev, 0, sizeof(WC_ASYNC_DEV));
 
-    XMEMSET(asyncDev, 0, sizeof(AsyncCryptDev));
-    asyncDev->marker = marker;
+    /* negative device Id's are invalid */
+    if (devId >= 0) {
+        asyncDev->marker = marker;
+        asyncDev->heap = heap;
 
-#ifdef HAVE_CAVIUM
-    ret = NitroxAllocContext(&asyncDev->dev, devId, CONTEXT_SSL);
-#elif defined(HAVE_INTEL_QA)
-    /* TODO: Add device context open for Intel QuickAssist */
-#else
-    ret = 0;
-#endif
+    #ifdef HAVE_CAVIUM
+        ret = NitroxAllocContext(asyncDev, devId, CONTEXT_SSL);
+    #elif defined(HAVE_INTEL_QA)
+        ret = IntelQaOpen(asyncDev, devId);
+    #endif
+    }
 
     return ret;
 }
 
-void wolfAsync_DevCtxFree(AsyncCryptDev* asyncDev)
+void wolfAsync_DevCtxFree(WC_ASYNC_DEV* asyncDev, word32 marker)
 {
-    if (asyncDev && asyncDev->marker != 0) {
+    if (asyncDev && asyncDev->marker == marker) {
     #ifdef HAVE_CAVIUM
-        NitroxFreeContext(&asyncDev->dev);
+        NitroxFreeContext(asyncDev);
     #elif defined(HAVE_INTEL_QA)
-        /* TODO: Add device context free for Intel QuickAssist */
+        IntelQaClose(asyncDev);
     #endif
-        asyncDev->marker = 0;
+        asyncDev->marker = WOLFSSL_ASYNC_MARKER_INVALID;
     }
 }
 
+int wolfAsync_DevCopy(WC_ASYNC_DEV* src, WC_ASYNC_DEV* dst)
+{
+    int ret = 0;
 
+    if (src == NULL || dst == NULL)
+        return BAD_FUNC_ARG;
+
+    /* make sure we aren't copying to self */
+    if (src == dst)
+        return ret;
+
+#ifdef HAVE_CAVIUM
+    /* nothing to do here */
+#elif defined(HAVE_INTEL_QA)
+    ret = IntelQaDevCopy(src, dst);
+#endif
+
+    return ret;
+}
 
 int wolfAsync_EventPop(WOLF_EVENT* event, enum WOLF_EVENT_TYPE event_type)
 {
@@ -213,11 +424,7 @@ int wolfAsync_EventPop(WOLF_EVENT* event, enum WOLF_EVENT_TYPE event_type)
         return BAD_FUNC_ARG;
     }
 
-    if (event->type == event_type ||
-            (event_type == WOLF_EVENT_TYPE_ASYNC_ANY &&
-                event->type >= WOLF_EVENT_TYPE_ASYNC_FIRST &&
-                event->type <= WOLF_EVENT_TYPE_ASYNC_LAST))
-    {
+    if (event->type == event_type) {
         /* Trap the scenario where event is not done */
         if (!event->done) {
             return WC_PENDING_E;
@@ -243,37 +450,39 @@ int wolfAsync_EventQueuePush(WOLF_EVENT_QUEUE* queue, WOLF_EVENT* event)
     }
 
     /* Setup event and push to event queue */
+    event->dev.async = wolfAsync_GetDev(event);
     return wolfEventQueue_Push(queue, event);
 }
 
 int wolfAsync_EventPoll(WOLF_EVENT* event, WOLF_EVENT_FLAG flags)
 {
     int ret = 0;
+    WC_ASYNC_DEV* asyncDev;
 
     (void)flags;
 
     if (event == NULL) {
         return BAD_FUNC_ARG;
     }
+    asyncDev = event->dev.async;
+
+    /* Note: event queue mutex is locked here, so make sure
+        hardware doesn't try and lock event_queue */
 
     if (flags & WOLF_POLL_FLAG_CHECK_HW) {
     #if defined(HAVE_CAVIUM)
-        /* Note: event queue mutex is locked here, so make sure
-        hardware doesn't try and lock event_queue */
-
-        AsyncCryptDev* asyncDev = (AsyncCryptDev*)event->context;
-        event->ret = NitroxCheckRequest(asyncDev->dev.devId, event->reqId);
+        event->ret = NitroxCheckRequest(asyncDev, event);
+    #elif defined(HAVE_INTEL_QA)
+        ret = IntelQaPoll(asyncDev); /* event->ret is populated via callback */
+    #elif defined(WOLFSSL_ASYNC_CRYPT_TEST)
+        event->ret = wolfAsync_crypt_test(asyncDev);
+    #endif
 
         /* If not pending then mark as done */
         if (event->ret != WC_PENDING_E) {
             event->done = 1;
             event->pending = 0;
         }
-    #elif defined(HAVE_INTEL_QA)
-        /* TODO: Add hardware polling for Intel QuickAssist */
-    #else
-        event->ret = wolfAsync_crypt_test(event);
-    #endif
     }
 
     return ret;
@@ -281,9 +490,9 @@ int wolfAsync_EventPoll(WOLF_EVENT* event, WOLF_EVENT_FLAG flags)
 
 
 #ifdef HAVE_CAVIUM
-static int wolfAsync_CheckMultiReqBuf(AsyncCryptDev* asyncDev,
+static int wolfAsync_CheckMultiReqBuf(WC_ASYNC_DEV* asyncDev,
     WOLF_EVENT_QUEUE* queue, void* context_filter,
-    CspMultiRequestStatusBuffer* multi_req)
+    struct CspMultiRequestStatusBuffer* multi_req)
 {
     WOLF_EVENT* event;
     int ret = 0, i;
@@ -293,21 +502,20 @@ static int wolfAsync_CheckMultiReqBuf(AsyncCryptDev* asyncDev,
     }
 
     /* Perform multi hardware poll */
-    ret = NitroxCheckRequests(asyncDev->dev.devId, multi_req);
+    ret = NitroxCheckRequests(asyncDev, multi_req);
     if (ret != 0) {
         return ret;
     }
 
     /* Itterate event queue */
-    for (event = queue->head; event != NULL; event = event->next)
-    {
-        /* optional filter based on context */
-        if (context_filter == NULL || event->context == context_filter) {
-            if (event->type >= WOLF_EVENT_TYPE_ASYNC_FIRST &&
-                event->type <= WOLF_EVENT_TYPE_ASYNC_LAST)
-            {
+    for (event = queue->head; event != NULL; event = event->next) {
+        if (event->type >= WOLF_EVENT_TYPE_ASYNC_FIRST &&
+            event->type <= WOLF_EVENT_TYPE_ASYNC_LAST)
+        {
+            /* optional filter based on context */
+            if (context_filter == NULL || event->context == context_filter) {
                 /* find request */
-                for (i = 0; i < CAVIUM_MAX_POLL; i++) {
+                for (i = 0; i < multi_req->count; i++) {
                     if (event->reqId > 0 && event->reqId == multi_req->req[i].request_id) {
                         event->ret = NitroxTranslateResponseCode(multi_req->req[i].status);
 
@@ -325,7 +533,7 @@ static int wolfAsync_CheckMultiReqBuf(AsyncCryptDev* asyncDev,
     }
 
     /* reset multi request buffer */
-    XMEMSET(multi_req, 0, sizeof(CspMultiRequestStatusBuffer));
+    XMEMSET(multi_req, 0, sizeof(struct CspMultiRequestStatusBuffer));
 
     return ret;
 }
@@ -336,9 +544,9 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
 {
     WOLF_EVENT* event;
     int ret = 0, count = 0;
-    AsyncCryptDev* asyncDev = NULL;
+    WC_ASYNC_DEV* asyncDev = NULL;
 #ifdef HAVE_CAVIUM
-    CspMultiRequestStatusBuffer multi_req;
+    struct CspMultiRequestStatusBuffer multi_req;
     XMEMSET(&multi_req, 0, sizeof(multi_req));
 #endif
 
@@ -360,25 +568,28 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
     if (flags & WOLF_POLL_FLAG_CHECK_HW) {
         /* check event queue */
         count = 0;
-        for (event = queue->head; event != NULL; event = event->next)
-        {
+        for (event = queue->head; event != NULL; event = event->next) {
             if (event->type >= WOLF_EVENT_TYPE_ASYNC_FIRST &&
                 event->type <= WOLF_EVENT_TYPE_ASYNC_LAST)
             {
                 /* optional filter based on context */
                 if (context_filter == NULL || event->context == context_filter) {
-                    asyncDev = (AsyncCryptDev*)event->context;
+                    asyncDev = event->dev.async;
+
+                    if (asyncDev == NULL) {
+                        ret = WC_INIT_E;
+                        break;
+                    }
+
                     count++;
 
-                #if defined(HAVE_CAVIUM)
-                    /* Fill multi request status buffer */
+            #if defined(HAVE_CAVIUM)
+                    /* Add entry to multi-request buffer */
                     if (event->reqId > 0) {
                         multi_req.req[multi_req.count].request_id = event->reqId;
                         multi_req.count++;
                     }
-
-                    /* Note: event queue mutex is locked here, so make sure
-                    hardware doesn't try and lock event_queue */
+                    /* Submit filled multi-request query */
                     if (multi_req.count >= CAVIUM_MAX_POLL) {
                         ret = wolfAsync_CheckMultiReqBuf(asyncDev,
                                             queue, context_filter, &multi_req);
@@ -386,24 +597,41 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
                             break;
                         }
                     }
-                #elif defined(HAVE_INTEL_QA)
-                    /* TODO: Add hardware polling for Intel QuickAssist */
-                #else
+            #else
+                #if defined(HAVE_INTEL_QA)
+                    /* poll QAT hardware and use callbacks to populate event */
+                    ret = IntelQaPoll(asyncDev);
+                    if (ret != 0) {
+                        break;
+                    }
+
+                #elif defined(WOLFSSL_ASYNC_CRYPT_TEST)
                     #ifdef WOLF_ASYNC_TEST_SKIP_MOD
                         /* Simulate random hardware not done */
                         if (count % WOLF_ASYNC_TEST_SKIP_MOD)
                     #endif
                         {
-                            event->ret = wolfAsync_crypt_test(event);
+                            event->ret = wolfAsync_crypt_test(asyncDev);
                         }
+                #else
+                    #warning No async crypt hardware defined!
                 #endif
-                    (void)asyncDev; /* Ignore un-used warning */
+
+                    /* If not pending then mark as done */
+                    if (event->ret != WC_PENDING_E) {
+                        event->done = 1;
+                        event->pending = 0;
+                    #if defined(HAVE_CAVIUM)
+                        event->reqId = 0;
+                    #endif
+                    }
+            #endif
                 }
             }
         } /* for */
 
-        /* check remainder */
     #if defined(HAVE_CAVIUM)
+        /* Submit partial multi-request query (if no prev errors) */
         if (ret == 0 && multi_req.count > 0) {
             ret = wolfAsync_CheckMultiReqBuf(asyncDev,
                                 queue, context_filter, &multi_req);
@@ -413,8 +641,7 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
 
     /* process event queue */
     count = 0;
-    for (event = queue->head; event != NULL; event = event->next)
-    {
+    for (event = queue->head; event != NULL; event = event->next) {
         if (event->type >= WOLF_EVENT_TYPE_ASYNC_FIRST &&
             event->type <= WOLF_EVENT_TYPE_ASYNC_LAST)
         {
@@ -453,7 +680,8 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
     return ret;
 }
 
-int wolfAsync_EventInit(WOLF_EVENT* event, WOLF_EVENT_TYPE type, void* context)
+int wolfAsync_EventInit(WOLF_EVENT* event, WOLF_EVENT_TYPE type, void* context,
+    word32 flags)
 {
     int ret;
 
@@ -463,15 +691,18 @@ int wolfAsync_EventInit(WOLF_EVENT* event, WOLF_EVENT_TYPE type, void* context)
 
     ret = wolfEvent_Init(event, type, context);
     if (ret == 0) {
-    #ifdef HAVE_CAVIUM
-        AsyncCryptDev* asyncDev = (AsyncCryptDev*)event->context;
-        event->reqId = asyncDev->dev.reqId;
-    #elif defined(HAVE_INTEL_QA)
-        /* TODO: Add any event init for Intel QuickAssist */
-    #endif
+        WC_ASYNC_DEV* asyncDev = wolfAsync_GetDev(event);
+
+        event->dev.async = asyncDev;
         event->pending = 1;
         event->done = 0;
         event->ret = WC_PENDING_E;
+        event->flags = flags;
+    #ifdef HAVE_CAVIUM
+        event->reqId = asyncDev->nitrox.reqId;
+    #elif defined(HAVE_INTEL_QA)
+        /* Add any event init for Intel QuickAssist */
+    #endif
         ret = 0;
     }
 
@@ -493,5 +724,358 @@ int wolfAsync_EventWait(WOLF_EVENT* event)
 
     return ret;
 }
+
+int wc_AsyncHandle(WC_ASYNC_DEV* asyncDev, WOLF_EVENT_QUEUE* queue,
+    word32 event_flags)
+{
+    int ret;
+    WOLF_EVENT* event;
+
+    if (asyncDev == NULL || queue == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* setup the event and push to queue */
+    event = &asyncDev->event;
+    ret = wolfAsync_EventInit(event, WOLF_EVENT_TYPE_ASYNC_WOLFCRYPT,
+                                                        asyncDev, event_flags);
+    if (ret == 0) {
+        ret = wolfEventQueue_Push(queue, event);
+    }
+
+    /* check for error (helps with debugging) */
+    if (ret != 0) {
+        WOLFSSL_MSG("wc_AsyncHandle failed");
+    }
+
+    return ret;
+}
+
+int wc_AsyncWait(int ret, WC_ASYNC_DEV* asyncDev, word32 event_flags)
+{
+    if (ret == WC_PENDING_E) {
+        WOLF_EVENT* event;
+
+        if (asyncDev == NULL)
+            return BAD_FUNC_ARG;
+
+        event = &asyncDev->event;
+        XMEMSET(event, 0, sizeof(WOLF_EVENT));
+        ret = wolfAsync_EventInit(event, WOLF_EVENT_TYPE_ASYNC_WOLFCRYPT,
+                                                        asyncDev, event_flags);
+        if (ret == 0) {
+            ret = wolfAsync_EventWait(event);
+            if (ret == 0) {
+                ret = event->ret;
+            }
+        }
+    }
+    return ret;
+}
+
+int wc_AsyncSleep(word32 ms)
+{
+    int ret = 0;
+    struct timespec resTime, remTime;
+    resTime.tv_sec = ms/1000;
+    resTime.tv_nsec = (ms%1000)*1000000;
+    do {
+        ret = nanosleep(&resTime, &remTime);
+        resTime = remTime;
+    } while ((ret!=0) && (errno == EINTR));
+
+    if (ret != 0) {
+        printf("nanoSleep failed with code %d\n", ret);
+        return BAD_FUNC_ARG;
+    }
+
+   return ret;
+}
+
+
+/* Pthread Helpers */
+#ifndef WC_NO_ASYNC_THREADING
+
+int wc_AsyncGetNumberOfCpus(void)
+{
+    int numCpus;
+
+    numCpus = (int)sysconf(_SC_NPROCESSORS_ONLN);
+
+#ifdef HAVE_INTEL_QA
+    /* for QuickAssist make sure and only use one thread->CPU per crypto instance */
+    if (numCpus > IntelQaNumInstances()) {
+        numCpus = IntelQaNumInstances();
+    }
+#endif
+
+    return numCpus;
+}
+
+int wc_AsyncThreadCreate_ex(pthread_t *thread,
+    word32 priority, int policy,
+    AsyncThreadFunc_t function, void* params)
+{
+    int status = 1;
+    pthread_attr_t attr;
+    struct sched_param param;
+
+    status = pthread_attr_init(&attr);
+    if (status !=0) {
+        printf("%d\n", errno);
+        return ASYNC_OP_E;
+    }
+
+    /* Setting scheduling parameter will fail for non root user,
+     * as the default value of inheritsched is PTHREAD_EXPLICIT_SCHED in
+     * POSIX. It is not required to set it explicitly before setting the
+     * scheduling policy */
+
+    /* Set scheduling policy based on values provided */
+    if ((policy != SCHED_RR) &&
+        (policy != SCHED_FIFO) &&
+        (policy != SCHED_OTHER))
+    {
+        policy = SCHED_OTHER;
+    }
+
+    status = pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+    if (status != 0) {
+        goto exit_fail;
+    }
+
+    status = pthread_attr_setschedpolicy(&attr, policy);
+    if (status != 0) {
+        goto exit_fail;
+    }
+
+    /* Set priority based on value in threadAttr */
+    memset(&param, 0, sizeof(param));
+    param.sched_priority = priority;
+    if (policy != SCHED_OTHER) {
+        status = pthread_attr_setschedparam(&attr, &param);
+        if (status != 0) {
+            goto exit_fail;
+        }
+    }
+
+    status = pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+    if (status != 0) {
+        goto exit_fail;
+    }
+
+    status = pthread_attr_setscope(&attr, PTHREAD_SCOPE_SYSTEM);
+    if (status != 0) {
+        goto exit_fail;
+    }
+
+    status = pthread_create(thread, &attr, function, params);
+    if (status != 0) {
+        goto exit_fail;
+    }
+
+    /*destroy the thread attributes as they are no longer required, this does
+    * not affect the created thread*/
+    pthread_attr_destroy(&attr);
+    return 0;
+
+exit_fail:
+
+    printf("AsyncThreadCreate error: %d\n", errno);
+    pthread_attr_destroy(&attr);
+    return ASYNC_OP_E;
+}
+
+int wc_AsyncThreadCreate(pthread_t *thread,
+    AsyncThreadFunc_t function, void* params)
+{
+    return wc_AsyncThreadCreate_ex(thread, THREAD_DEFAULT_PRIORITY,
+        THREAD_DEFAULT_POLICY, function, params);
+}
+
+#ifdef __MACH__
+    #include <mach/mach.h>
+    #include <mach/thread_policy.h>
+
+    /* native MACH API wrappers */
+    #define SYSCTL_CORE_COUNT   "machdep.cpu.core_count"
+
+    typedef struct cpu_set {
+        uint32_t count;
+    } cpu_set_t;
+
+    static INLINE void CPU_ZERO(cpu_set_t *cs) {
+        cs->count = 0;
+    }
+    static INLINE void CPU_SET(int num, cpu_set_t *cs) {
+        cs->count |= (1 << num);
+    }
+    static INLINE int CPU_ISSET(int num, cpu_set_t *cs) {
+        return (cs->count & (1 << num));
+    }
+
+    static int pthread_setaffinity_np(pthread_t thread, size_t cpu_size,
+                               cpu_set_t *cpu_set)
+    {
+        thread_port_t mach_thread;
+        thread_affinity_policy_data_t policy;
+        int core = 0;
+
+        for (core = 0; core < 8 * (int)cpu_size; core++) {
+            if (CPU_ISSET(core, cpu_set))
+                break;
+        }
+
+        policy.affinity_tag = core;
+        mach_thread = pthread_mach_thread_np(thread);
+        thread_policy_set(mach_thread, THREAD_AFFINITY_POLICY,
+            (thread_policy_t)&policy, 1);
+
+        return 0;
+    }
+#endif /* __MACH__ */
+
+
+int wc_AsyncThreadBind(pthread_t *thread, word32 logicalCore)
+{
+    int status = 0;
+    cpu_set_t cpuset;
+
+    if (!thread) return BAD_FUNC_ARG;
+
+    CPU_ZERO(&cpuset);
+    CPU_SET(logicalCore, &cpuset);
+
+    status = pthread_setaffinity_np(*thread, sizeof(cpu_set_t), &cpuset);
+    if (status != 0) {
+        printf("pthread_setaffinity_np, status %d, errno %d\n", status, errno);
+    }
+
+    return status;
+}
+
+int wc_AsyncThreadStart(pthread_t *thread)
+{
+    (void)thread;
+    return 0;
+}
+
+__attribute__((noreturn))
+void wc_AsyncThreadExit(void *retval)
+{
+    pthread_exit(retval);
+}
+
+int wc_AsyncThreadKill(pthread_t *thread)
+{
+    int status;
+
+    if (!thread) return BAD_FUNC_ARG;
+
+    status = pthread_cancel(*thread);
+    if (status != 0) {
+        printf("pthread_cancel: Failed to cancel the thread!\n");
+    }
+
+    return status;
+}
+
+
+int wc_AsyncThreadPrioritySet(pthread_t *thread, word32 priority)
+{
+    int status;
+    struct sched_param param;
+    int policy;
+    word32 minPrio;
+    word32 maxPrio;
+
+    if (!thread) return BAD_FUNC_ARG;
+
+    status = pthread_getschedparam(*thread, &policy, &param);
+    if (status != 0) {
+        printf("pthread_getschedparam, failed with status %d\n", status);
+        return status;
+    }
+
+    minPrio = sched_get_priority_min(policy);
+    maxPrio =  sched_get_priority_max(policy);
+
+    if ((priority < minPrio) || (priority > maxPrio)) {
+        printf("priority outside valid range\n");
+        return BAD_FUNC_ARG;
+    }
+
+    param.sched_priority = priority;
+
+    status = pthread_setschedparam(*thread, policy, &param);
+    if (status != 0) {
+        printf("pthread_setschedparam, failed with status %d\n", status);
+        return status;
+    }
+
+    return status;
+}
+
+int wc_AsyncThreadSetPolicyAndPriority(pthread_t *thread, word32 policy,
+    word32 priority)
+{
+    int status;
+    struct sched_param  param;
+    word32 minPrio, maxPrio;
+    int policy1;
+
+    if (!thread) return BAD_FUNC_ARG;
+
+    /* check for a valid value for 'policy' */
+    if ((policy != SCHED_RR) &&
+        (policy != SCHED_FIFO) &&
+        (policy != SCHED_OTHER))
+    {
+        printf("policy error\n");
+        return BAD_FUNC_ARG;
+    }
+
+    memset(&param, 0, sizeof(param));
+
+    status = pthread_getschedparam(*thread, &policy1, &param);
+    if (status != 0) {
+        printf("pthread_getschedparam error: %d\n", errno);
+        return status;
+    }
+
+    minPrio = sched_get_priority_min(policy);
+    maxPrio =  sched_get_priority_max(policy);
+
+    if ((priority < minPrio) || (priority > maxPrio)) {
+        return BAD_FUNC_ARG;
+    }
+
+    param.sched_priority = priority;
+
+    status = pthread_setschedparam(*thread, policy, &param);
+    if (status != 0) {
+        printf("pthread_setschedparam error: %d\n", errno);
+        return status;
+    }
+
+    return 0;
+}
+
+int wc_AsyncThreadJoin(pthread_t *thread)
+{
+    int status;
+    status = pthread_join(*thread, NULL);
+    if (status != 0) {
+        printf("pthread_join failed, status: %d\n", status);
+    }
+    return status;
+}
+
+void wc_AsyncThreadYield(void)
+{
+    sched_yield();
+}
+
+#endif /* WC_NO_ASYNC_THREADING */
 
 #endif /* WOLFSSL_ASYNC_CRYPT */
