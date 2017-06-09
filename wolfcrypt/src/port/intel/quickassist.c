@@ -762,12 +762,14 @@ int IntelQaRsaPrivate(WC_ASYNC_DEV* dev,
     }
 
     /* make sure output length is at least modulus len */
-    if (*outLen < n->len)
-        return BAD_FUNC_ARG;
+    if (*outLen < n->len) {
+        ret = BAD_FUNC_ARG; goto exit;
+    }
 
     /* make sure outLen is not more than inLen */
-    if (*outLen > inLen)
+    if (*outLen > inLen) {
         *outLen = inLen;
+    }
 
 	opData->inputData.dataLenInBytes = inLen;
 	opData->inputData.pData = XREALLOC((byte*)in, inLen, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
@@ -1468,8 +1470,7 @@ static int IntelQaSymCipher(WC_ASYNC_DEV* dev, byte* out, const byte* in,
         return BAD_FUNC_ARG;
     }
     if (hashAlgorithm != CPA_CY_SYM_HASH_NONE &&
-        (authTag == NULL || authTagSz == 0 ||
-         authIn == NULL || authInSz == 0)) {
+        (authTag == NULL || authTagSz == 0)) {
         return BAD_FUNC_ARG;
     }
 
