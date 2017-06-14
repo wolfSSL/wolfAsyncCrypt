@@ -32,6 +32,8 @@
 #include "cpa_cy_ecdh.h"
 #include "cpa_cy_ecdsa.h"
 #include "cpa_cy_dh.h"
+#include "cpa_cy_drbg.h"
+#include "cpa_cy_nrbg.h"
 
 /* User space utils */
 #include <stdio.h>
@@ -96,15 +98,22 @@ struct WC_ASYNC_DEV;
 struct WC_BIGINT;
 struct IntelQaDev;
 
+#if defined(QAT_ENABLE_HASH) || defined(QAT_ENABLE_CRYPTO)
+/* symetric context */
+typedef struct IntelQaSymCtx {
+    CpaCySymOpData opData;
+    CpaCySymSessionCtx symCtxOpen;
+    CpaCySymSessionCtx symCtx;
+    word32 symCtxSize;
+} IntelQaSymCtx;
+#endif
 
 /* QuickAssist device */
 typedef struct IntelQaDev {
 	CpaInstanceHandle handle;
-    CpaCySymSessionCtx symCtxOpen;
-    CpaCySymSessionCtx symCtx;
-    word32 symCtxSize;
     int devId;
 
+    /* callback return info */
     CpaStatus status;
     byte* out;
     union {
@@ -112,6 +121,7 @@ typedef struct IntelQaDev {
         word32 outLen;
     };
 
+    /* operations */
     union {
     #ifndef NO_RSA
         struct {
@@ -131,7 +141,7 @@ typedef struct IntelQaDev {
     #endif
     #ifdef QAT_ENABLE_CRYPTO
         struct {
-            CpaCySymOpData opData;
+            IntelQaSymCtx ctx;
             CpaBufferList bufferList;
             CpaFlatBuffer flatBuffer;
             byte* authTag;
@@ -165,7 +175,7 @@ typedef struct IntelQaDev {
 #endif
     #ifdef QAT_ENABLE_HASH
         struct {
-            CpaCySymOpData opData;
+            IntelQaSymCtx ctx;
             byte* tmpIn; /* tmp buffer to hold anything pending less than block size */
             word32 tmpInSz;
             word32 blockSize;
@@ -181,6 +191,12 @@ typedef struct IntelQaDev {
             CpaFlatBuffer pOut;
         } dh_agree;
     #endif
+        struct {
+            CpaCyDrbgGenOpData opData;
+            CpaCyDrbgSessionHandle handle;
+            CpaFlatBuffer pOut;
+            Cpa32U handleSize;
+        } drbg;
     } op;
 
 #ifdef QAT_USE_POLLING_THREAD
@@ -347,6 +363,9 @@ WOLFSSL_LOCAL int IntelQaGetCyInstanceCount(void);
         int macType, byte* keyRaw, word16 keyLen,
         byte* out, const byte* in, word32 sz);
 #endif /* !NO_HMAC */
+
+WOLFSSL_LOCAL int IntelQaDrbg(struct WC_ASYNC_DEV* dev, byte* rngBuf, word32 rngSz);
+WOLFSSL_LOCAL int IntelQaNrbg(CpaFlatBuffer* pBuffer, Cpa32U length);
 
 #endif /* HAVE_INTEL_QA */
 
