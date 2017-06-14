@@ -3249,11 +3249,12 @@ static void IntelQaDrbgCallback(void *pCallbackTag, CpaStatus status,
 
 int IntelQaDrbg(WC_ASYNC_DEV* dev, byte* rngBuf, word32 rngSz)
 {
-    int ret, retryCount = 0;
+    int ret = 0, retryCount = 0;
     CpaStatus status = CPA_STATUS_SUCCESS;
     CpaCyDrbgGenOpData* opData = NULL;
     CpaCyGenFlatBufCbFunc callback = IntelQaDrbgCallback;
     CpaFlatBuffer* pOut = NULL;
+    word32 idx = 0, gen = 0;
 
     if (dev == NULL || rngBuf == NULL || rngSz == 0) {
         return BAD_FUNC_ARG;
@@ -3301,35 +3302,42 @@ int IntelQaDrbg(WC_ASYNC_DEV* dev, byte* rngBuf, word32 rngSz)
                     &seedLen);
     }
 
-    /* setup operation data */
-    pOut->dataLenInBytes = rngSz;
-    pOut->pData = XREALLOC(rngBuf, rngSz, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
-    if (pOut->pData == NULL) {
-        ret = MEMORY_E; goto exit;
-    }
+    /* chunk into LAC_DRBG_MAX_NUM_OF_BYTES (0xFFFF) */
+    while (ret == 0 && idx < rngSz) {
+        /* setup operation data */
+        gen = rngSz - gen;
+        if (gen > 0xFFFF)
+            gen = 0xFFFF;
 
-    opData->sessionHandle = dev->qat.op.drbg.handle;
-    opData->lengthInBytes = rngSz;
-    opData->secStrength = CPA_CY_RBG_SEC_STRENGTH_128;
-    opData->predictionResistanceRequired = CPA_FALSE;
-    opData->additionalInput.dataLenInBytes = 0;
-    opData->additionalInput.pData = NULL;
+        pOut->dataLenInBytes = gen;
+        pOut->pData = XREALLOC(&rngBuf[idx], gen, dev->heap,
+            DYNAMIC_TYPE_ASYNC_NUMA);
+        if (pOut->pData == NULL) {
+            ret = MEMORY_E; goto exit;
+        }
 
-    /* store info needed for output */
-    dev->qat.out = rngBuf;
-    dev->qat.status = INVALID_STATUS;
+        opData->sessionHandle = dev->qat.op.drbg.handle;
+        opData->lengthInBytes = gen;
+        opData->secStrength = CPA_CY_RBG_SEC_STRENGTH_128;
+        opData->predictionResistanceRequired = CPA_FALSE;
+        opData->additionalInput.dataLenInBytes = 0;
+        opData->additionalInput.pData = NULL;
 
-    /* Perform DRBG generation */
-    do {
-        status = cpaCyDrbgGen(dev->qat.handle,
-            dev,
-            opData,
-            pOut);
-    } while (IntelQaHandleCpaStatus(dev, status, &ret, QAT_DRBG_ASYNC, callback,
-        &retryCount));
+        /* store info needed for output */
+        dev->qat.out = &rngBuf[idx];
+        dev->qat.status = INVALID_STATUS;
 
-    if (ret == WC_PENDING_E)
-        return ret;
+        /* Perform DRBG generation */
+        do {
+            status = cpaCyDrbgGen(dev->qat.handle,
+                dev,
+                opData,
+                pOut);
+        } while (IntelQaHandleCpaStatus(dev, status, &ret, QAT_DRBG_ASYNC, callback,
+            &retryCount));
+
+        idx += gen;
+    };
 
 exit:
 
