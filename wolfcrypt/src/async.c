@@ -82,7 +82,7 @@ static int wolfAsync_crypt_test(WC_ASYNC_DEV* asyncDev)
     }
     testDev = &asyncDev->test;
 
-    switch(testDev->type) {
+    switch (testDev->type) {
 #ifdef HAVE_ECC
         case ASYNC_TEST_ECC_MAKE:
         {

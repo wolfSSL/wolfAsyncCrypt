@@ -226,11 +226,18 @@ static INLINE int qaeMemTypeIsNuma(int type)
         case DYNAMIC_TYPE_ASYNC_NUMA:
         case DYNAMIC_TYPE_ASYNC_NUMA64:
         case DYNAMIC_TYPE_WOLF_BIGINT:
-        case DYNAMIC_TYPE_DH_BUFFER:
-        case DYNAMIC_TYPE_TMP_BUFFER:
         case DYNAMIC_TYPE_OUT_BUFFER:
         case DYNAMIC_TYPE_IN_BUFFER:
-        case DYNAMIC_TYPE_AES:
+        case DYNAMIC_TYPE_PRIVATE_KEY:
+        case DYNAMIC_TYPE_PUBLIC_KEY:
+        case DYNAMIC_TYPE_AES_BUFFER:
+        case DYNAMIC_TYPE_RSA_BUFFER:
+        case DYNAMIC_TYPE_ECC_BUFFER:
+        case DYNAMIC_TYPE_SIGNATURE:
+        case DYNAMIC_TYPE_DIGEST:
+        case DYNAMIC_TYPE_SECRET:
+        case DYNAMIC_TYPE_SEED:
+        case DYNAMIC_TYPE_SALT:
         {
             isNuma = 1;
             break;
@@ -545,7 +552,7 @@ void* IntelQaRealloc(void *ptr, size_t size, void* heap, int type
             XMEMCPY(newPtr, ptr, copySize);
 
             if (newIsNuma == 0 && ptrIsNuma == 0) {
-                /* for non-NUMA, treat as normal REALLOC  and free old pointer */
+                /* for non-NUMA, treat as normal REALLOC and free old pointer */
                 _qaeMemFree(ptr, heap, type
                 #ifdef WOLFSSL_DEBUG_MEMORY
                     , func, line
