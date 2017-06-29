@@ -416,6 +416,7 @@ int wolfAsync_DevCopy(WC_ASYNC_DEV* src, WC_ASYNC_DEV* dst)
     return ret;
 }
 
+/* called from `wolfSSL_AsyncPop` to check if event is done and deliver async return code */
 int wolfAsync_EventPop(WOLF_EVENT* event, enum WOLF_EVENT_TYPE event_type)
 {
     int ret;
@@ -802,13 +803,6 @@ int wc_AsyncGetNumberOfCpus(void)
 
     numCpus = (int)sysconf(_SC_NPROCESSORS_ONLN);
 
-#ifdef HAVE_INTEL_QA
-    /* for QuickAssist make sure and only use one thread->CPU per crypto instance */
-    if (numCpus > IntelQaNumInstances()) {
-        numCpus = IntelQaNumInstances();
-    }
-#endif
-
     return numCpus;
 }
 
@@ -934,7 +928,6 @@ int wc_AsyncThreadCreate(pthread_t *thread,
         return 0;
     }
 #endif /* __MACH__ */
-
 
 int wc_AsyncThreadBind(pthread_t *thread, word32 logicalCore)
 {
