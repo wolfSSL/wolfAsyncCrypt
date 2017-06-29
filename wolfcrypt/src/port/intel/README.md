@@ -24,7 +24,19 @@ The asynchronous crypto files are located at `wolfcrypt/src/async.c` and `wolfss
 
 ## Usage
 
-Running wolfCrypt test and benchmark must be done with `sudo` to allow hardware access. By default the QuickAssist code uses the "SSL" process name via QAT_PROCESS_NAME in quickassist.h to match up to the hardware configuration.
+Running wolfCrypt test and benchmark must be done with `sudo` to allow hardware access. By default the QuickAssist code uses the "SSL" process name via `QAT_PROCESS_NAME` in quickassist.h to match up to the hardware configuration.
+
+Here are some build options for tuning your use:
+
+1. `QAT_USE_POLLING_CHECK`: Enables polling check to ensure only one poll per crypto instance.
+2. `WC_ASYNC_THREAD_BIND`: Enables binding of thread to crypto hardware instance.
+3. `WOLFSSL_DEBUG_MEMORY_PRINT`: Enables verbose malloc/free printing. This option is used along with `WOLFSSL_DEBUG_MEMORY` and `WOLFSSL_TRACK_MEMORY`.
+
+The QuickAssist driver uses its own memory management system in `quickassist_mem.c`. This can be tuned using the following defines:
+
+1. `USE_QAE_STATIC_MEM`: Uses a global pool for the list of allocations. This improves performance, but consumes extra up front memory. The pre-allocation size can be tuned using `QAE_USER_MEM_MAX_COUNT`.
+2. `USE_QAE_THREAD_LS` : Uses thread-local-storage and removes the mutex. Can improve performance in multi-threaded environment, but does use extra memeory.
+
 
 ### wolfCrypt Test with QAT
 ```
