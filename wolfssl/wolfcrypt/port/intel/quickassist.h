@@ -60,7 +60,7 @@
     #define QAT_MAX_DEVICES  (1)  /* maximum number of QAT cards */
 #endif
 #ifndef QAT_MAX_PENDING
-    #define QAT_MAX_PENDING  (20) /* maximum number of concurent operations */
+    #define QAT_MAX_PENDING  (15) /* 120/num_threads = max num of concurent ops */
 #endif
 #ifndef QAT_RETRY_LIMIT
     #define QAT_RETRY_LIMIT  (100)
@@ -195,7 +195,6 @@ typedef struct IntelQaDev {
             CpaCyDrbgGenOpData opData;
             CpaCyDrbgSessionHandle handle;
             CpaFlatBuffer pOut;
-            Cpa32U handleSize;
         } drbg;
     } op;
 
