@@ -746,12 +746,12 @@ int NitroxHmacFinal(Hmac* hmac, int type, byte* hash, word16 hashLen)
 #ifdef HAVE_CAVIUM_V
     ret = CspHmac(hmac->asyncDev.nitrox.devId, CAVIUM_BLOCKING,
         DMA_DIRECT_DIRECT, CAVIUM_SSL_GRP, CAVIUM_DPORT, cav_type,
-        hmac->keyLen, hmac->keyRaw, hmac->dataLen, hmac->data, hashLen,
+        hmac->keyLen, (byte*)hmac->ipad, hmac->dataLen, hmac->data, hashLen,
         hash, &hmac->asyncDev.nitrox.reqId);
 #else
     (void)hashLen;
     ret = CspHmac(CAVIUM_BLOCKING, cav_type, NULL, hmac->keyLen,
-        hmac->keyRaw, hmac->dataLen, hmac->data, hash,
+        (byte*)hmac->ipad, hmac->dataLen, hmac->data, hash,
         &hmac->asyncDev.nitrox.reqId, hmac->asyncDev.nitrox.devId);
 #endif
     ret = NitroxTranslateResponseCode(ret);
