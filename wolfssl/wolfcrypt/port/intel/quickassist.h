@@ -105,6 +105,7 @@ typedef struct IntelQaSymCtx {
     CpaCySymSessionCtx symCtxOpen;
     CpaCySymSessionCtx symCtx;
     word32 symCtxSize;
+    word32 isOpen;
 } IntelQaSymCtx;
 #endif
 
