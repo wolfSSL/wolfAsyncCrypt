@@ -1511,13 +1511,6 @@ static void IntelQaSymCipherCallback(void *pCallbackTag, CpaStatus status,
                 outLen = dev->qat.outLen;
             }
 
-        #ifndef NO_AES
-            /* adjust for auth tag */
-            if (dev->qat.op.cipher.authTag && dev->qat.op.cipher.authTagSz > 0) {
-                outLen -= dev->qat.op.cipher.authTagSz;
-            }
-        #endif
-
             /* return data */
             if (dev->qat.out && dev->qat.out != pDstBuffer->pBuffers->pData) {
                 XMEMCPY(dev->qat.out, pDstBuffer->pBuffers->pData, outLen);
@@ -1698,7 +1691,7 @@ static int IntelQaSymCipher(WC_ASYNC_DEV* dev, byte* out, const byte* in,
 
     /* store info needed for output */
     dev->qat.out = out;
-    dev->qat.outLen = dataLen;
+    dev->qat.outLen = inOutSz;
     if (cipherDirection == CPA_CY_SYM_CIPHER_DIRECTION_ENCRYPT) {
         dev->qat.op.cipher.authTag = authTag;
         dev->qat.op.cipher.authTagSz = authTagSz;
