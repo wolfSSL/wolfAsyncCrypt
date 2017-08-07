@@ -220,16 +220,17 @@ sudo ./wolfcrypt/benchmark/benchmark
 
 IntelQA: Instances 6
 wolfCrypt Benchmark (min 1.0 sec each)
-CPUs: 6
+CPUs: 8
 
 ```
 
 # Build Options
 
-1. Async mult-threading can be disabled by definining `WC_NO_ASYNC_THREADING`. 
-2. Sofware benchmarks can be disabled by definining `NO_SW_BENCH`.
-3. The `WC_ASYNC_THRESH_NONE` define can be used to disable the cipher thresholds, which are tunable values to determine at what size hardware should be used vs. software.
-4. Use `WOLFSSL_DEBUG_MEMORY` and `WOLFSSL_TRACK_MEMORY` to help debug memory issues. QAT also supports `WOLFSSL_DEBUG_MEMORY_PRINT`.
+1. `WC_NO_ASYNC_THREADING`: Disables async mult-threading.
+2. `WC_ASYNC_THREAD_BIND`: Enables binding of thread to crypto hardware instance.
+2. `WC_ASYNC_THRESH_NONE` Disables the cipher thresholds, which are tunable values to determine at what size hardware should be used vs. software.
+3. `NO_SW_BENCH`: Disables sofware benchmarks so only hardware results are returned.
+4. Use `WOLFSSL_DEBUG_MEMORY` and `WOLFSSL_TRACK_MEMORY` to help debug memory issues.
 
 
 # References
