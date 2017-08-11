@@ -520,7 +520,15 @@ static int IntelQaDevIsHash(WC_ASYNC_DEV* dev)
 
 static IntelQaSymCtx* IntelQaGetSymCtx(WC_ASYNC_DEV* dev)
 {
+#if defined(QAT_ENABLE_CRYPTO) && defined(QAT_ENABLE_HASH)
     return IntelQaDevIsHash(dev) ? &dev->qat.op.hash.ctx : &dev->qat.op.cipher.ctx;
+#elif defined(QAT_ENABLE_CRYPTO)
+    return IntelQaDevIsHash(dev) ? NULL : &dev->qat.op.cipher.ctx;
+#elif defined(QAT_ENABLE_HASH)
+    return IntelQaDevIsHash(dev) ? &dev->qat.op.hash.ctx : NULL;
+#else
+    return NULL;
+#endif
 }
 
 static int IntelQaDevIsSym(WC_ASYNC_DEV* dev)
@@ -687,7 +695,9 @@ static int IntelQaPollBlockStatus(WC_ASYNC_DEV* dev, int status_wait)
         if (dev->qat.status != status_wait) {
             break;
         }
+    #ifndef WC_NO_ASYNC_THREADING
         wc_AsyncThreadYield();
+    #endif
     } while (1);
     ret = dev->event.ret;
 
@@ -705,7 +715,9 @@ static int IntelQaPollBlockRet(WC_ASYNC_DEV* dev, int ret_wait)
         if (dev->event.ret != ret_wait) {
             break;
         }
+    #ifndef WC_NO_ASYNC_THREADING
         wc_AsyncThreadYield();
+    #endif
     } while (1);
     ret = dev->event.ret;
 
@@ -747,6 +759,15 @@ static INLINE int IntelQaHandleCpaStatus(WC_ASYNC_DEV* dev, CpaStatus status,
     }
 
     return retry;
+}
+
+static INLINE void IntelQaDevClear(WC_ASYNC_DEV* dev)
+{
+    /* values that must be reset prior to calling algo */
+    /* this is because operation may complete before added to event list */
+    dev->qat.status = INVALID_STATUS;
+    dev->event.ret = WC_PENDING_E;
+    dev->event.state = WOLF_EVENT_STATE_PENDING;
 }
 
 
@@ -885,7 +906,7 @@ int IntelQaRsaPrivate(WC_ASYNC_DEV* dev,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLenPtr = outLen;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaDevClear(dev);
 
     /* perform RSA decrypt */
     do {
@@ -982,7 +1003,7 @@ int IntelQaRsaCrtPrivate(WC_ASYNC_DEV* dev,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLenPtr = outLen;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaDevClear(dev);
 
     /* perform RSA CRT decrypt */
     do {
@@ -1130,7 +1151,7 @@ int IntelQaRsaPublic(WC_ASYNC_DEV* dev,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLenPtr = outLen;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaDevClear(dev);
 
     /* perform RSA encrypt */
     do {
@@ -1260,7 +1281,7 @@ int IntelQaRsaExptMod(WC_ASYNC_DEV* dev,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLenPtr = outLen;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaDevClear(dev);
 
 	/* make modxp call async */
     do {
@@ -1705,7 +1726,7 @@ static int IntelQaSymCipher(WC_ASYNC_DEV* dev, byte* out, const byte* in,
         dev->qat.op.cipher.authTag = NULL;
         dev->qat.op.cipher.authTagSz = 0;
     }
-    dev->qat.status = INVALID_STATUS;
+    IntelQaDevClear(dev);
 
     /* perform symetric AES operation async */
     /* use same buffer list for in-place operation */
@@ -2257,7 +2278,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLen = inOutSz;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaDevClear(dev);
 
     /* perform symetric hash operation async */
     /* use same buffer list for in-place operation */
@@ -2554,7 +2575,7 @@ int IntelQaEcdh(WC_ASYNC_DEV* dev, WC_BIGINT* k, WC_BIGINT* xG,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLenPtr = outlen;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaDevClear(dev);
 
     /* perform point multiply */
     do {
@@ -2709,7 +2730,7 @@ int IntelQaEcdsaSign(WC_ASYNC_DEV* dev,
     /* store info needed for output */
     dev->qat.op.ecc_sign.pR = r;
     dev->qat.op.ecc_sign.pS = s;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaDevClear(dev);
 
     /* Perform ECDSA sign */
     do {
@@ -2830,7 +2851,7 @@ int IntelQaEcdsaVerify(WC_ASYNC_DEV* dev, WC_BIGINT* m,
 
     /* store info needed for output */
     dev->qat.op.ecc_verify.stat = stat;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaDevClear(dev);
 
     /* Perform ECDSA verify */
     do {
@@ -2960,7 +2981,7 @@ int IntelQaDhKeyGen(WC_ASYNC_DEV* dev, WC_BIGINT* p, WC_BIGINT* g,
     *pubSz = p->len;
     dev->qat.out = pub;
     dev->qat.outLenPtr = pubSz;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaDevClear(dev);
 
     /* Perform DhKeyGen */
     do {
@@ -3097,7 +3118,7 @@ int IntelQaDhAgree(WC_ASYNC_DEV* dev, WC_BIGINT* p,
     /* store info needed for output */
     dev->qat.out = agree;
     dev->qat.outLenPtr = agreeSz;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaDevClear(dev);
 
     /* Perform DhKeyGen */
     do {
@@ -3374,7 +3395,7 @@ int IntelQaDrbg(WC_ASYNC_DEV* dev, byte* rngBuf, word32 rngSz)
 
         /* store info needed for output */
         dev->qat.out = &rngBuf[idx];
-        dev->qat.status = INVALID_STATUS;
+        IntelQaDevClear(dev);
 
         /* Perform DRBG generation */
         do {
