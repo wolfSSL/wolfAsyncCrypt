@@ -402,6 +402,18 @@ int IntelQaHardwareStart(const char* process_name, int limitDevAccess)
         }
     }
 
+#if defined(HAVE_ECC) && defined(HAVE_ECC_DHE)
+    g_qatEcdhY = XMALLOC(MAX_ECC_BYTES, NULL, DYNAMIC_TYPE_ASYNC_NUMA);
+    if (g_qatEcdhY == NULL) {
+        ret = MEMORY_E; goto error;
+    }
+    g_qatEcdhCofactor1 = XMALLOC(MAX_ECC_BYTES, NULL, DYNAMIC_TYPE_ASYNC_NUMA);
+    if (g_qatEcdhCofactor1 == NULL) {
+        ret = MEMORY_E; goto error;
+    }
+    *((word32*)g_qatEcdhCofactor1) = OS_HOST_TO_NW_32(1);
+#endif
+
     printf("IntelQA: Instances %d\n", g_numInstances);
     return ret;
 
@@ -685,26 +697,6 @@ int IntelQaPoll(WC_ASYNC_DEV* dev)
 	return ret;
 }
 
-static int IntelQaPollBlockStatus(WC_ASYNC_DEV* dev, int status_wait)
-{
-    int ret;
-
-    do {
-        ret = IntelQaPoll(dev);
-
-        if (dev->qat.status != status_wait) {
-            break;
-        }
-    #ifndef WC_NO_ASYNC_THREADING
-        wc_AsyncThreadYield();
-    #endif
-    } while (1);
-    ret = dev->event.ret;
-
-    return ret;
-}
-
-#ifdef QAT_DEMO_MAIN
 static int IntelQaPollBlockRet(WC_ASYNC_DEV* dev, int ret_wait)
 {
     int ret;
@@ -723,7 +715,6 @@ static int IntelQaPollBlockRet(WC_ASYNC_DEV* dev, int ret_wait)
 
     return ret;
 }
-#endif
 
 int IntelQaGetCyInstanceCount(void)
 {
@@ -740,7 +731,7 @@ static INLINE int IntelQaHandleCpaStatus(WC_ASYNC_DEV* dev, CpaStatus status,
             *ret = WC_PENDING_E;
         }
         else {
-            *ret = IntelQaPollBlockStatus(dev, INVALID_STATUS);
+            *ret = IntelQaPollBlockRet(dev, WC_PENDING_E);
         }
     }
     else if (status == CPA_STATUS_RETRY) {
@@ -765,9 +756,8 @@ static INLINE void IntelQaDevClear(WC_ASYNC_DEV* dev)
 {
     /* values that must be reset prior to calling algo */
     /* this is because operation may complete before added to event list */
-    dev->qat.status = INVALID_STATUS;
-    dev->event.ret = WC_PENDING_E;
     dev->event.state = WOLF_EVENT_STATE_PENDING;
+    dev->event.ret = WC_PENDING_E;
 }
 
 
@@ -836,8 +826,8 @@ static void IntelQaRsaPrivateCallback(void *pCallbackTag,
     /* make sure and perform cleanup before marking event */
     IntelQaRsaPrivateFree(dev, opData, pOut);
 
-    dev->event.ret = ret;
     dev->qat.status = status;
+    dev->event.ret = ret;
 }
 
 int IntelQaRsaPrivate(WC_ASYNC_DEV* dev,
@@ -1088,8 +1078,8 @@ static void IntelQaRsaPublicCallback(void *pCallbackTag,
     /* make sure and perform cleanup before marking event */
     IntelQaRsaPublicFree(dev, opData, pOut);
 
-    dev->event.ret = ret;
     dev->qat.status = status;
+    dev->event.ret = ret;
 }
 
 int IntelQaRsaPublic(WC_ASYNC_DEV* dev,
@@ -1233,8 +1223,8 @@ static void IntelQaRsaModExpCallback(void *pCallbackTag,
     /* make sure and perform cleanup before marking event */
     IntelQaRsaModExpFree(dev, opData, pOut);
 
-    dev->event.ret = ret;
     dev->qat.status = status;
+    dev->event.ret = ret;
 }
 
 int IntelQaRsaExptMod(WC_ASYNC_DEV* dev,
@@ -1568,8 +1558,8 @@ static void IntelQaSymCipherCallback(void *pCallbackTag, CpaStatus status,
     /* Free allocations */
     IntelQaSymCipherFree(dev, opData, pDstBuffer, 0);
 
-    dev->event.ret = ret;
     dev->qat.status = status;
+    dev->event.ret = ret;
 }
 
 static int IntelQaSymCipher(WC_ASYNC_DEV* dev, byte* out, const byte* in,
@@ -1952,7 +1942,7 @@ static void IntelQaSymHashFree(WC_ASYNC_DEV* dev,
         dev->qat.op.hash.blockSize = 0;
 
         /* close session */
-        IntelQaSymClose(dev, 0);
+        IntelQaSymClose(dev, 1);
     }
 
     /* clear temp pointers */
@@ -1996,8 +1986,8 @@ static void IntelQaSymHashCallback(void *pCallbackTag, CpaStatus status,
     /* Free allocations */
     IntelQaSymHashFree(dev, opData, pDstBuffer, 0);
 
-    dev->event.ret = ret;
     dev->qat.status = status;
+    dev->event.ret = ret;
 }
 
 /* For hash update call with out == NULL */
@@ -2492,8 +2482,8 @@ static void IntelQaEcdhCallback(void *pCallbackTag, CpaStatus status,
     /* make sure and perform cleanup before marking event */
     IntelQaEcdhFree(dev, opData, pXk, pYk);
 
-    dev->event.ret = ret;
     dev->qat.status = status;
+    dev->event.ret = ret;
 }
 
 int IntelQaEcdh(WC_ASYNC_DEV* dev, WC_BIGINT* k, WC_BIGINT* xG,
@@ -2540,14 +2530,6 @@ int IntelQaEcdh(WC_ASYNC_DEV* dev, WC_BIGINT* k, WC_BIGINT* xG,
     /* if using default value 1 then use shared global */
     opData->h.dataLenInBytes = 4;
     if (cofactor == 1) {
-        if (g_qatEcdhCofactor1 == NULL) {
-            g_qatEcdhCofactor1 = XMALLOC(opData->h.dataLenInBytes, dev->heap,
-                DYNAMIC_TYPE_ASYNC_NUMA);
-            if (g_qatEcdhCofactor1 == NULL) {
-                ret = MEMORY_E; goto exit;
-            }
-            *((word32*)g_qatEcdhCofactor1) = OS_HOST_TO_NW_32(cofactor);
-        }
         opData->h.pData = g_qatEcdhCofactor1;
     }
     else {
@@ -2563,12 +2545,6 @@ int IntelQaEcdh(WC_ASYNC_DEV* dev, WC_BIGINT* k, WC_BIGINT* xG,
     pXk->dataLenInBytes = a->len; /* bytes key size / 8 (aligned) */
     pXk->pData = XREALLOC(out, pXk->dataLenInBytes, dev->heap,
         DYNAMIC_TYPE_ASYNC_NUMA);
-    if (g_qatEcdhY == NULL) {
-        g_qatEcdhY = XMALLOC(MAX_ECC_BYTES, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
-        if (g_qatEcdhY == NULL) {
-            ret = MEMORY_E; goto exit;
-        }
-    }
     pYk->dataLenInBytes = a->len;
     pYk->pData = g_qatEcdhY;
 
@@ -2669,8 +2645,8 @@ static void IntelQaEcdsaSignCallback(void *pCallbackTag,
     /* make sure and perform cleanup before marking event */
     IntelQaEcdsaSignFree(dev, opData, pR, pS);
 
-    dev->event.ret = ret;
     dev->qat.status = status;
+    dev->event.ret = ret;
 }
 
 int IntelQaEcdsaSign(WC_ASYNC_DEV* dev,
@@ -2805,8 +2781,8 @@ static void IntelQaEcdsaVerifyCallback(void *pCallbackTag,
     /* make sure and perform cleanup before marking event */
     IntelQaEcdsaVerifyFree(dev, opData);
 
-    dev->event.ret = ret;
     dev->qat.status = status;
+    dev->event.ret = ret;
 }
 
 int IntelQaEcdsaVerify(WC_ASYNC_DEV* dev, WC_BIGINT* m,
@@ -2937,8 +2913,8 @@ static void IntelQaDhKeyGenCallback(void *pCallbackTag, CpaStatus status,
     /* make sure and perform cleanup before marking event */
     IntelQaDhKeyGenFree(dev, opData, pOut);
 
-    dev->event.ret = ret;
     dev->qat.status = status;
+    dev->event.ret = ret;
 }
 
 int IntelQaDhKeyGen(WC_ASYNC_DEV* dev, WC_BIGINT* p, WC_BIGINT* g,
@@ -3070,8 +3046,8 @@ static void IntelQaDhAgreeCallback(void *pCallbackTag, CpaStatus status,
     /* make sure and perform cleanup before marking event */
     IntelQaDhAgreeFree(dev, opData, pOut);
 
-    dev->event.ret = ret;
     dev->qat.status = status;
+    dev->event.ret = ret;
 }
 
 int IntelQaDhAgree(WC_ASYNC_DEV* dev, WC_BIGINT* p,
@@ -3305,8 +3281,8 @@ static void IntelQaDrbgCallback(void *pCallbackTag, CpaStatus status,
     /* make sure and perform cleanup before marking event */
     IntelQaDrbgFree(dev, opData, pOut, 0);
 
-    dev->event.ret = ret;
     dev->qat.status = status;
+    dev->event.ret = ret;
 }
 
 int IntelQaDrbg(WC_ASYNC_DEV* dev, byte* rngBuf, word32 rngSz)
