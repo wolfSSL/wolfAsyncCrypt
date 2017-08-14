@@ -400,6 +400,7 @@ WOLFSSL_API int wc_AsyncThreadSetPolicyAndPriority(pthread_t *thread, word32 pol
     word32 priority);
 WOLFSSL_API int wc_AsyncThreadJoin(pthread_t *thread);
 WOLFSSL_API void wc_AsyncThreadYield(void);
+WOLFSSL_API pthread_t wc_AsyncThreadId(void);
 
 #endif /* WC_NO_ASYNC_THREADING */
 

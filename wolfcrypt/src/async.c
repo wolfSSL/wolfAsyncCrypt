@@ -386,8 +386,13 @@ int wolfAsync_DevCtxInit(WC_ASYNC_DEV* asyncDev, word32 marker, void* heap,
 
     /* negative device Id's are invalid */
     if (devId >= 0) {
+        WOLF_EVENT* event = &asyncDev->event;
         asyncDev->marker = marker;
         asyncDev->heap = heap;
+
+    #ifndef WC_NO_ASYNC_THREADING
+        event->threadId = wc_AsyncThreadId();
+    #endif
 
     #ifdef HAVE_CAVIUM
         ret = NitroxAllocContext(asyncDev, devId, CONTEXT_SSL);
@@ -489,7 +494,7 @@ int wolfAsync_EventPoll(WOLF_EVENT* event, WOLF_EVENT_FLAG flags)
     #if defined(HAVE_CAVIUM)
         event->ret = NitroxCheckRequest(asyncDev, event);
     #elif defined(HAVE_INTEL_QA)
-        ret = IntelQaPoll(asyncDev); /* event->ret is populated via callback */
+        ret = IntelQaPoll(asyncDev);
     #elif defined(WOLFSSL_ASYNC_CRYPT_TEST)
         event->ret = wolfAsync_crypt_test(asyncDev);
     #endif
@@ -613,7 +618,7 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
                     }
             #else
                 #if defined(HAVE_INTEL_QA)
-                    /* poll QAT hardware and use callbacks to populate event */
+                    /* poll QAT hardware, callback returns data, this thread poll sets event */
                     ret = IntelQaPoll(asyncDev);
                     if (ret != 0) {
                         break;
@@ -1078,6 +1083,11 @@ int wc_AsyncThreadJoin(pthread_t *thread)
 void wc_AsyncThreadYield(void)
 {
     sched_yield();
+}
+
+pthread_t wc_AsyncThreadId(void)
+{
+    return pthread_self();
 }
 
 #endif /* WC_NO_ASYNC_THREADING */

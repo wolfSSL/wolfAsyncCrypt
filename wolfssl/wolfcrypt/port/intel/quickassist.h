@@ -109,13 +109,15 @@ typedef struct IntelQaSymCtx {
 } IntelQaSymCtx;
 #endif
 
+typedef void (*IntelQaFreeFunc)(struct WC_ASYNC_DEV*);
+
 /* QuickAssist device */
 typedef struct IntelQaDev {
 	CpaInstanceHandle handle;
     int devId;
 
     /* callback return info */
-    CpaStatus status;
+    int ret;
     byte* out;
     union {
         word32* outLenPtr;
@@ -123,6 +125,7 @@ typedef struct IntelQaDev {
     };
 
     /* operations */
+    IntelQaFreeFunc freeFunc;
     union {
     #ifndef NO_RSA
         struct {
@@ -177,6 +180,7 @@ typedef struct IntelQaDev {
     #ifdef QAT_ENABLE_HASH
         struct {
             IntelQaSymCtx ctx;
+            CpaBufferList* srcList;
             byte* tmpIn; /* tmp buffer to hold anything pending less than block size */
             word32 tmpInSz;
             word32 blockSize;
@@ -223,6 +227,8 @@ WOLFSSL_LOCAL int IntelQaDevCopy(struct WC_ASYNC_DEV* src, struct WC_ASYNC_DEV* 
 WOLFSSL_LOCAL int IntelQaPoll(struct WC_ASYNC_DEV* dev);
 
 WOLFSSL_LOCAL int IntelQaGetCyInstanceCount(void);
+
+WOLFSSL_LOCAL void IntelQaOpFree(struct WC_ASYNC_DEV* dev);
 
 #ifndef NO_RSA
     WOLFSSL_LOCAL int IntelQaRsaPrivate(struct WC_ASYNC_DEV* dev,
