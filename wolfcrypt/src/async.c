@@ -157,7 +157,7 @@ static int wolfAsync_crypt_test(WC_ASYNC_DEV* asyncDev)
                 testDev->rsaFunc.outSz,
                 testDev->rsaFunc.type,
                 (RsaKey*)testDev->rsaFunc.key,
-                testDev->rsaFunc.rng
+                (WC_RNG*)testDev->rsaFunc.rng
             );
             break;
         }
@@ -290,8 +290,6 @@ int wc_AsyncTestInit(WC_ASYNC_DEV* dev, int type)
         WC_ASYNC_TEST* testDev = &dev->test;
         if (testDev->type == ASYNC_TEST_NONE) {
             testDev->type = type;
-            dev->event.ret = WC_PENDING_E;
-            dev->event.state = WOLF_EVENT_STATE_PENDING;
             return 1; /* submit async test */
         }
     }
@@ -386,13 +384,8 @@ int wolfAsync_DevCtxInit(WC_ASYNC_DEV* asyncDev, word32 marker, void* heap,
 
     /* negative device Id's are invalid */
     if (devId >= 0) {
-        WOLF_EVENT* event = &asyncDev->event;
         asyncDev->marker = marker;
         asyncDev->heap = heap;
-
-    #ifndef WC_NO_ASYNC_THREADING
-        event->threadId = wc_AsyncThreadId();
-    #endif
 
     #ifdef HAVE_CAVIUM
         ret = NitroxAllocContext(asyncDev, devId, CONTEXT_SSL);
@@ -708,17 +701,19 @@ int wolfAsync_EventInit(WOLF_EVENT* event, WOLF_EVENT_TYPE type, void* context,
         return BAD_FUNC_ARG;
     }
 
-    /* the event state and ret are set prior to algo running */
-
     event->type = type;
     event->context = context;
+#ifndef WC_NO_ASYNC_THREADING
+    event->threadId = wc_AsyncThreadId();
+#endif
+    event->ret = WC_PENDING_E;
+    event->state = WOLF_EVENT_STATE_PENDING;
+
     asyncDev = wolfAsync_GetDev(event);
     event->dev.async = asyncDev;
     event->flags = flags;
 #ifdef HAVE_CAVIUM
     event->reqId = asyncDev->nitrox.reqId;
-#elif defined(HAVE_INTEL_QA)
-    /* Add any event init for Intel QuickAssist */
 #endif
 
     return ret;

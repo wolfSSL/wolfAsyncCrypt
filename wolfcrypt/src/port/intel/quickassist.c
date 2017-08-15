@@ -79,7 +79,6 @@
 
 #define OS_HOST_TO_NW_32(uData) ByteReverseWord32(uData)
 
-
 static CpaInstanceHandle* g_cyInstances = NULL;
 static CpaInstanceInfo2* g_cyInstanceInfo = NULL;
 static Cpa32U* g_cyInstMap = NULL;
@@ -611,28 +610,35 @@ int IntelQaDevCopy(WC_ASYNC_DEV* src, WC_ASYNC_DEV* dst)
 {
     int ret = 0;
 #if defined(QAT_ENABLE_HASH) || defined(QAT_ENABLE_CRYPTO)
-    IntelQaSymCtx* ctx;
-    #ifdef QAT_ENABLE_HASH
-        int isHash;
-    #endif
+    IntelQaSymCtx *ctxSrc, *ctxDst;
+#ifdef QAT_ENABLE_HASH
+    int isHash;
+#endif
 #endif
 
     if (src == NULL || dst == NULL)
         return BAD_FUNC_ARG;
 
 #if defined(QAT_ENABLE_HASH) || defined(QAT_ENABLE_CRYPTO)
+    ctxDst = IntelQaGetSymCtx(dst);
+    ctxSrc = IntelQaGetSymCtx(src);
 
-    ctx = IntelQaGetSymCtx(dst);
+    if (ctxDst == NULL || ctxSrc == NULL) {
+        return ret;
+    }
 
 #ifdef QAT_DEBUG
-    printf("IntelQaDevCopy: dev %p->%p, symCtx %p, symCtxSize %d\n",
-        src, dst, ctx->symCtx, ctx->symCtxSize);
+    printf("IntelQaDevCopy: dev %p->%p, symCtx %p (src %p), symCtxSize %d\n",
+        src, dst, ctxSrc->symCtx, ctxSrc->symCtxSrc, ctxSrc->symCtxSize);
 #endif
 
-    /* make sure symCtx is cleared, so new open will occur */
-    if (ctx) {
-        ctx->symCtx = NULL;
-    }
+    ctxDst->isCopy = 1;
+    /* force alloc/init on open for copy */
+    ctxDst->symCtx = NULL;
+    ctxDst->isOpen = 0;
+    /* if src is not open, then don't set source ctx */
+    if (!ctxSrc->isOpen)
+        ctxDst->symCtxSrc = NULL;
 
 #ifdef QAT_ENABLE_HASH
     isHash = IntelQaDevIsHash(src);
@@ -684,7 +690,7 @@ int IntelQaPoll(WC_ASYNC_DEV* dev)
 	}
 
 #ifndef WC_NO_ASYNC_THREADING
-    if (event->threadId == wc_AsyncThreadId())
+    if (event->threadId == 0 || event->threadId == wc_AsyncThreadId())
 #endif
     {
         /* perform cleanup */
@@ -768,14 +774,15 @@ static INLINE void IntelQaOpInit(WC_ASYNC_DEV* dev)
 {
     /* values that must be reset prior to calling algo */
     /* this is because operation may complete before added to event list */
-    dev->event.ret = WC_PENDING_E;
-    dev->event.state = WOLF_EVENT_STATE_PENDING;
     dev->qat.ret = WC_PENDING_E;
 }
 
 void IntelQaOpFree(WC_ASYNC_DEV* dev)
 {
     if (dev && dev->qat.freeFunc) {
+#ifdef QAT_DEBUG
+        printf("IntelQaOpFree: Dev %p, FreeFunc %p\n", dev, dev->qat.freeFunc);
+#endif
         IntelQaFreeFunc freeFunc = dev->qat.freeFunc;
         dev->qat.freeFunc = NULL;
         freeFunc(dev);
@@ -1347,18 +1354,13 @@ static int IntelQaSymOpen(WC_ASYNC_DEV* dev, CpaCySymSessionSetupData* setup,
 
     ctx = IntelQaGetSymCtx(dev);
 
-    /* Determine size of session context to allocate */
-#if 1
-    status = cpaCySymSessionCtxGetDynamicSize(dev->qat.handle, setup, &sessionCtxSize);
-#else
+    /* Determine size of session context to allocate - use max size */
     status = cpaCySymSessionCtxGetSize(dev->qat.handle, setup, &sessionCtxSize);
-#endif
 
-    /* make sure sym ctx will fit */
-    if (ctx->symCtx != NULL && ctx->symCtxSize < sessionCtxSize) {
-        XFREE(ctx->symCtx, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA64);
-        ctx->symCtx = NULL;
-        ctx->symCtxSize = 0;
+    if (ctx->symCtxSize > 0 && ctx->symCtxSize > sessionCtxSize) {
+        printf("Symetric context size error! Buf %d, Exp %d\n",
+            ctx->symCtxSize, sessionCtxSize);
+        return ASYNC_OP_E;
     }
 
     /* make sure session context is allocated */
@@ -1371,37 +1373,30 @@ static int IntelQaSymOpen(WC_ASYNC_DEV* dev, CpaCySymSessionSetupData* setup,
     }
     ctx->symCtxSize = sessionCtxSize;
 
-    /* open symetric session */
-    status = cpaCySymInitSession(dev->qat.handle, callback, setup, ctx->symCtx);
-    if (status != CPA_STATUS_SUCCESS) {
-        printf("cpaCySymInitSession failed! dev %p, status %d\n", dev, status);
-        XFREE(ctx->symCtx, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA64);
-        ctx->symCtx = NULL;
-        return ASYNC_INIT_E;
-    }
+    if (!ctx->isOpen) {
+        ctx->isOpen = 1;
 
-    ctx->isOpen = 1;
-
-    if (ctx->symCtxOpen) {
-        /* override memory with original (open) */
-        byte* symCtxDst = (byte*)ctx->symCtx;
-        byte* symCtxSrc = (byte*)ctx->symCtxOpen;
-        /* copy from hashStatePrefixBuffer to end */
-    #ifdef USE_LAC_SESSION_FOR_STRUCT_OFFSET
-        const word32 copyRegion = (word32)offsetof(lac_session_desc_t, hashStatePrefixBuffer);
-    #else
-        const word32 copyRegion = (41 * 16);
+    #ifdef QAT_DEBUG
+        printf("IntelQaSymOpen: InitSession dev %p, symCtx %p\n", dev, ctx->symCtx);
     #endif
-        XMEMCPY(&symCtxDst[copyRegion], &symCtxSrc[copyRegion],
-            sessionCtxSize - copyRegion);
+
+        /* open symetric session */
+        status = cpaCySymInitSession(dev->qat.handle, callback, setup, ctx->symCtx);
+        if (status != CPA_STATUS_SUCCESS) {
+            printf("cpaCySymInitSession failed! dev %p, status %d\n", dev, status);
+            XFREE(ctx->symCtx, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA64);
+            ctx->symCtx = NULL;
+            return ASYNC_INIT_E;
+        }
     }
-    else {
-        ctx->symCtxOpen = ctx->symCtx;
+
+    if (ctx->symCtxSrc == NULL) {
+        ctx->symCtxSrc = ctx->symCtx;
     }
 
 #ifdef QAT_DEBUG
-    printf("IntelQaSymOpen: dev %p, symCtx %p, symCtxSize %d\n",
-        dev, ctx->symCtx, ctx->symCtxSize);
+    printf("IntelQaSymOpen: dev %p, symCtx %p (src %p), symCtxSize %d, isCopy %d, isOpen %d\n",
+        dev, ctx->symCtx, ctx->symCtxSrc, ctx->symCtxSize, ctx->isCopy, ctx->isOpen);
 #endif
 
     return ret;
@@ -1422,15 +1417,21 @@ static int IntelQaSymClose(WC_ASYNC_DEV* dev, int doFree)
 
     ctx = IntelQaGetSymCtx(dev);
 
-#ifdef QAT_DEBUG
-    printf("IntelQaSymClose: dev %p, symCtx %p (open %p), symCtxSize %d, free %d\n",
-        dev, ctx->symCtx, ctx->symCtxOpen, ctx->symCtxSize, doFree);
+#ifdef QAT_ENABLE_HASH
+    isHash = IntelQaDevIsHash(dev);
 #endif
 
-    if (ctx->symCtx) {
+#ifdef QAT_DEBUG
+    printf("IntelQaSymClose: dev %p, symCtx %p (src %p), symCtxSize %d, isCopy %d, isOpen %d, doFree %d\n",
+        dev, ctx->symCtx, ctx->symCtxSrc, ctx->symCtxSize, ctx->isCopy, ctx->isOpen, doFree);
+#endif
 
+    if (ctx->symCtx == ctx->symCtxSrc) {
         if (ctx->isOpen) {
             ctx->isOpen = 0;
+        #ifdef QAT_DEBUG
+            printf("IntelQaSymClose: RemoveSession dev %p, symCtx %p\n", dev, ctx->symCtx);
+        #endif
             status = cpaCySymRemoveSession(dev->qat.handle, ctx->symCtx);
             if (status == CPA_STATUS_RETRY) {
                 printf("cpaCySymRemoveSession retry!\n");
@@ -1442,33 +1443,24 @@ static int IntelQaSymClose(WC_ASYNC_DEV* dev, int doFree)
                 ret = ASYNC_OP_E;
             }
         }
+    }
 
-        if (doFree) {
-            CpaCySymSessionCtx* symCtx = ctx->symCtx;
-
-            /* if we aren't a copy then clear open var */
-            if (ctx->symCtx == ctx->symCtxOpen)
-                ctx->symCtxOpen = NULL;
-
-            ctx->symCtx = NULL;
-            ctx->symCtxSize = 0;
-
-            XFREE(symCtx, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA64);
-        }
+    if (doFree) {
+        XFREE(ctx->symCtx, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA64);
+        ctx->symCtx = NULL;
+        ctx->symCtxSrc = NULL;
+        ctx->symCtxSize = 0;
     }
 
 #ifdef QAT_ENABLE_HASH
     /* make sure hash temp buffer is cleared */
-    isHash = IntelQaDevIsHash(dev);
+
     if (isHash) {
         if (dev->qat.op.hash.tmpIn) {
             XFREE(dev->qat.op.hash.tmpIn, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
         }
     }
 #endif
-
-    /* clear union */
-    XMEMSET(&dev->qat.op, 0, sizeof(dev->qat.op));
 
     return ret;
 }
@@ -1958,6 +1950,8 @@ static void IntelQaSymHashFree(WC_ASYNC_DEV* dev)
 
     /* if final */
     if (dev->qat.out) {
+        int doFree = 0;
+
         /* free any tmp input */
         if (dev->qat.op.hash.tmpIn) {
             XFREE(dev->qat.op.hash.tmpIn, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
@@ -1966,8 +1960,16 @@ static void IntelQaSymHashFree(WC_ASYNC_DEV* dev)
         dev->qat.op.hash.tmpInSz = 0;
         dev->qat.op.hash.blockSize = 0;
 
+        if (ctx->isCopy || ctx->symCtx != ctx->symCtxSrc) {
+            doFree = 1;
+        }
+
+    #ifdef QAT_DEBUG
+        printf("IntelQaSymHashFree: dev %p, doFree %d\n", dev, doFree);
+    #endif
+
         /* close session */
-        IntelQaSymClose(dev, 1);
+        IntelQaSymClose(dev, doFree);
     }
 
     /* clear temp pointers */
@@ -2035,7 +2037,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     Cpa32U digestSize;
     CpaCySymPacketType packetType;
     IntelQaSymCtx* ctx;
-
+    CpaCySymSessionSetupData setup;
     int bufferCount = 0;
     byte* buffers[MAX_QAT_HASH_BUFFERS] = {NULL};
     word32 buffersSz[MAX_QAT_HASH_BUFFERS] = {0};
@@ -2189,7 +2191,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
         }
 
         /* determine if this is full or partial */
-        if (ctx->symCtx == NULL && ctx->symCtxOpen == NULL) {
+        if (ctx->symCtxSrc == NULL || (!ctx->isOpen && !ctx->isCopy)) {
             packetType = CPA_CY_SYM_PACKET_TYPE_FULL;
         }
         else {
@@ -2234,55 +2236,58 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
         XMEMCPY(digestBuf, out, digestSize);
     }
 
-    /* allocate buffers */
-    opData = &ctx->opData;
-    XMEMSET(opData, 0, sizeof(CpaCySymOpData));
-
     /* setup */
-    if (ctx->symCtx == NULL) {
-        CpaCySymSessionSetupData setup;
-        XMEMSET(&setup, 0, sizeof(CpaCySymSessionSetupData));
-        setup.sessionPriority = CPA_CY_PRIORITY_NORMAL;
-        setup.symOperation = CPA_CY_SYM_OP_HASH;
-        setup.partialsNotRequired = (packetType == CPA_CY_SYM_PACKET_TYPE_FULL) ? CPA_TRUE : CPA_FALSE;
-        setup.hashSetupData.hashMode = hashMode;
-        setup.hashSetupData.hashAlgorithm = hashAlgorithm;
-        setup.hashSetupData.digestResultLenInBytes = digestSize;
-        setup.hashSetupData.authModeSetupData.authKey = authKey;
-        setup.hashSetupData.authModeSetupData.authKeyLenInBytes = authKeyLenInBytes;
+    XMEMSET(&setup, 0, sizeof(CpaCySymSessionSetupData));
+    setup.sessionPriority = CPA_CY_PRIORITY_NORMAL;
+    setup.symOperation = CPA_CY_SYM_OP_HASH;
+    setup.partialsNotRequired = (packetType == CPA_CY_SYM_PACKET_TYPE_FULL) ? CPA_TRUE : CPA_FALSE;
+    setup.hashSetupData.hashMode = hashMode;
+    setup.hashSetupData.hashAlgorithm = hashAlgorithm;
+    setup.hashSetupData.digestResultLenInBytes = digestSize;
+    setup.hashSetupData.authModeSetupData.authKey = authKey;
+    setup.hashSetupData.authModeSetupData.authKeyLenInBytes = authKeyLenInBytes;
 
-        /* open session */
-        ret = IntelQaSymOpen(dev, &setup, callback);
-        if (ret != 0) {
-            goto exit;
-        }
+    /* open session */
+    ret = IntelQaSymOpen(dev, &setup, callback);
+    if (ret != 0) {
+        goto exit;
+    }
 
-        /* note: this is a workaround to an issue with copying the symertic context */
-        if (packetType == CPA_CY_SYM_PACKET_TYPE_LAST_PARTIAL) {
-            /* set the partialState */
-        #ifdef USE_LAC_SESSION_FOR_STRUCT_OFFSET
-            const word32 partialStateOffset = (word32)offsetof(lac_session_desc_t, partialState);
-        #else
-            const word32 partialStateOffset = (29 * 16);
-        #endif
-            /* make sure partial state is partial */
-            word32 priorVal = *(word32*)(((byte*)ctx->symCtx) + partialStateOffset);
-            if (priorVal == 1) {
-                *(word32*)(((byte*)ctx->symCtx) + partialStateOffset) =
-                    CPA_CY_SYM_PACKET_TYPE_PARTIAL;
-            }
-            else {
-                /* try with + 32 (alignment) */
-                priorVal = *(word32*)(((byte*)ctx->symCtx) + partialStateOffset + (2 * 16));
-                if (priorVal == 1) {
-                    *(word32*)(((byte*)ctx->symCtx) + partialStateOffset + (2 * 16)) =
-                    CPA_CY_SYM_PACKET_TYPE_PARTIAL;
-                }
+    /* workarounds for handling symetric context copies */
+    if (packetType == CPA_CY_SYM_PACKET_TYPE_LAST_PARTIAL) {
+        /* set the partialState for partial  */
+    #ifdef USE_LAC_SESSION_FOR_STRUCT_OFFSET
+        word32 parStaOffset = (word32)offsetof(lac_session_desc_t, partialState);
+    #else
+        word32 parStaOffset = (28 * 16);
+    #endif
+
+        /* make sure partialState is partial, try + 16 alignments as well */
+        for (i = 0; i < 2; i++) {
+            word32* priorVal = (word32*)((byte*)ctx->symCtx + parStaOffset + (i * 16));
+            if (*priorVal == CPA_CY_SYM_PACKET_TYPE_FULL) {
+                *priorVal = CPA_CY_SYM_PACKET_TYPE_PARTIAL;
+                break;
             }
         }
     }
+    if (ctx->symCtx != ctx->symCtxSrc) {
+        /* copy hash state (digest into new symetric context) */
+        byte* symCtxDst = (byte*)ctx->symCtx;
+        byte* symCtxSrc = (byte*)ctx->symCtxSrc;
+        /* copy from hashStatePrefixBuffer to end */
+    #ifdef USE_LAC_SESSION_FOR_STRUCT_OFFSET
+        const word32 copyRegion = (word32)offsetof(lac_session_desc_t, hashStatePrefixBuffer);
+    #else
+        const word32 copyRegion = (41 * 16);
+    #endif
+        XMEMCPY(&symCtxDst[copyRegion], &symCtxSrc[copyRegion],
+            ctx->symCtxSize - copyRegion);
+    }
 
     /* operation data */
+    opData = &ctx->opData;
+    XMEMSET(opData, 0, sizeof(CpaCySymOpData));
     opData->sessionCtx = ctx->symCtx;
     opData->packetType = packetType;
     opData->messageLenToHashInBytes = totalMsgSz;

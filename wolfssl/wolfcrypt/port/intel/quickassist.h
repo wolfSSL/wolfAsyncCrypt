@@ -102,10 +102,13 @@ struct IntelQaDev;
 /* symetric context */
 typedef struct IntelQaSymCtx {
     CpaCySymOpData opData;
-    CpaCySymSessionCtx symCtxOpen;
+    CpaCySymSessionCtx symCtxSrc;
     CpaCySymSessionCtx symCtx;
     word32 symCtxSize;
-    word32 isOpen;
+
+    /* flags */
+    word32 isOpen:1;
+    word32 isCopy:1;
 } IntelQaSymCtx;
 #endif
 
