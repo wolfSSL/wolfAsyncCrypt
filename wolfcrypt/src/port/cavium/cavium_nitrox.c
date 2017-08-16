@@ -1,4 +1,4 @@
-/* cavium-nitrox.c
+/* cavium_nitrox.c
  *
  * Copyright (C) 2006-2016 wolfSSL Inc.
  *

@@ -291,7 +291,7 @@ int IntelQaHardwareStart(const char* process_name, int limitDevAccess)
 
     status = cpaCyGetNumInstances(&g_numInstances);
     if (status != CPA_STATUS_SUCCESS || g_numInstances == 0) {
-        printf("IntelQA: Failed to get num of intstances! status %d\n",
+        printf("IntelQA: Failed to get num of instances! status %d\n",
                                                                     status);
         ret = INVALID_DEVID; goto error;
     }
@@ -1305,7 +1305,7 @@ int IntelQaRsaExptMod(WC_ASYNC_DEV* dev,
     dev->qat.outLenPtr = outLen;
     IntelQaOpInit(dev);
 
-	/* make modxp call async */
+	/* make modexp call async */
     do {
         status = cpaCyLnModExp(dev->qat.handle,
                                callback,
@@ -1358,7 +1358,7 @@ static int IntelQaSymOpen(WC_ASYNC_DEV* dev, CpaCySymSessionSetupData* setup,
     status = cpaCySymSessionCtxGetSize(dev->qat.handle, setup, &sessionCtxSize);
 
     if (ctx->symCtxSize > 0 && ctx->symCtxSize > sessionCtxSize) {
-        printf("Symetric context size error! Buf %d, Exp %d\n",
+        printf("Symmetric context size error! Buf %d, Exp %d\n",
             ctx->symCtxSize, sessionCtxSize);
         return ASYNC_OP_E;
     }
@@ -1733,7 +1733,7 @@ static int IntelQaSymCipher(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     }
     IntelQaOpInit(dev);
 
-    /* perform symetric AES operation async */
+    /* perform symmetric AES operation async */
     /* use same buffer list for in-place operation */
     do {
         status = cpaCySymPerformOp(dev->qat.handle,
@@ -2086,7 +2086,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
 
                 /* attempt to fill tmpIn and process block */
                 if (inOutSz < remainSz) {
-                    /* not enought to fill buffer */
+                    /* not enough to fill buffer */
                     XMEMCPY(&dev->qat.op.hash.tmpIn[dev->qat.op.hash.tmpInSz], in, inOutSz);
                     dev->qat.op.hash.tmpInSz += inOutSz;
                 }
@@ -2253,7 +2253,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
         goto exit;
     }
 
-    /* workarounds for handling symetric context copies */
+    /* workarounds for handling symmetric context copies */
     if (packetType == CPA_CY_SYM_PACKET_TYPE_LAST_PARTIAL) {
         /* set the partialState for partial  */
     #ifdef USE_LAC_SESSION_FOR_STRUCT_OFFSET
@@ -2272,7 +2272,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
         }
     }
     if (ctx->symCtx != ctx->symCtxSrc) {
-        /* copy hash state (digest into new symetric context) */
+        /* copy hash state (digest into new symmetric context) */
         byte* symCtxDst = (byte*)ctx->symCtx;
         byte* symCtxSrc = (byte*)ctx->symCtxSrc;
         /* copy from hashStatePrefixBuffer to end */
@@ -2298,7 +2298,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     dev->qat.outLen = inOutSz;
     IntelQaOpInit(dev);
 
-    /* perform symetric hash operation async */
+    /* perform symmetric hash operation async */
     /* use same buffer list for in-place operation */
     do {
         status = cpaCySymPerformOp(dev->qat.handle,

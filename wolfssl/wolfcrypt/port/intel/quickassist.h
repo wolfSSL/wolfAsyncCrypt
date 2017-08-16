@@ -60,7 +60,7 @@
     #define QAT_MAX_DEVICES  (1)  /* maximum number of QAT cards */
 #endif
 #ifndef QAT_MAX_PENDING
-    #define QAT_MAX_PENDING  (15) /* 120/num_threads = max num of concurent ops */
+    #define QAT_MAX_PENDING  (15) /* 120/num_threads = max num of concurrent ops */
 #endif
 #ifndef QAT_RETRY_LIMIT
     #define QAT_RETRY_LIMIT  (100)
@@ -99,7 +99,7 @@ struct WC_BIGINT;
 struct IntelQaDev;
 
 #if defined(QAT_ENABLE_HASH) || defined(QAT_ENABLE_CRYPTO)
-/* symetric context */
+/* symmetric context */
 typedef struct IntelQaSymCtx {
     CpaCySymOpData opData;
     CpaCySymSessionCtx symCtxSrc;
