@@ -1506,7 +1506,7 @@ static void IntelQaSymCipherFree(WC_ASYNC_DEV* dev)
     }
 
     /* close and free sym context */
-    IntelQaSymClose(dev, 0);
+    IntelQaSymClose(dev, 1);
 
     /* clear temp pointers */
     dev->qat.out = NULL;
@@ -2263,7 +2263,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     #endif
 
         /* make sure partialState is partial, try + 16 alignments as well */
-        for (i = 0; i < 2; i++) {
+        for (i = 0; i < 4; i++) {
             word32* priorVal = (word32*)((byte*)ctx->symCtx + parStaOffset + (i * 16));
             if (*priorVal == CPA_CY_SYM_PACKET_TYPE_FULL) {
                 *priorVal = CPA_CY_SYM_PACKET_TYPE_PARTIAL;
