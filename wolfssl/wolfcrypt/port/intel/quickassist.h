@@ -60,7 +60,7 @@
     #define QAT_MAX_DEVICES  (1)  /* maximum number of QAT cards */
 #endif
 #ifndef QAT_MAX_PENDING
-    #define QAT_MAX_PENDING  (15) /* 120/num_threads = max num of concurent ops */
+    #define QAT_MAX_PENDING  (15) /* 120/num_threads = max num of concurrent ops */
 #endif
 #ifndef QAT_RETRY_LIMIT
     #define QAT_RETRY_LIMIT  (100)
@@ -99,15 +99,20 @@ struct WC_BIGINT;
 struct IntelQaDev;
 
 #if defined(QAT_ENABLE_HASH) || defined(QAT_ENABLE_CRYPTO)
-/* symetric context */
+/* symmetric context */
 typedef struct IntelQaSymCtx {
     CpaCySymOpData opData;
-    CpaCySymSessionCtx symCtxOpen;
+    CpaCySymSessionCtx symCtxSrc;
     CpaCySymSessionCtx symCtx;
     word32 symCtxSize;
-    word32 isOpen;
+
+    /* flags */
+    word32 isOpen:1;
+    word32 isCopy:1;
 } IntelQaSymCtx;
 #endif
+
+typedef void (*IntelQaFreeFunc)(struct WC_ASYNC_DEV*);
 
 /* QuickAssist device */
 typedef struct IntelQaDev {
@@ -115,7 +120,7 @@ typedef struct IntelQaDev {
     int devId;
 
     /* callback return info */
-    CpaStatus status;
+    int ret;
     byte* out;
     union {
         word32* outLenPtr;
@@ -123,6 +128,7 @@ typedef struct IntelQaDev {
     };
 
     /* operations */
+    IntelQaFreeFunc freeFunc;
     union {
     #ifndef NO_RSA
         struct {
@@ -177,6 +183,7 @@ typedef struct IntelQaDev {
     #ifdef QAT_ENABLE_HASH
         struct {
             IntelQaSymCtx ctx;
+            CpaBufferList* srcList;
             byte* tmpIn; /* tmp buffer to hold anything pending less than block size */
             word32 tmpInSz;
             word32 blockSize;

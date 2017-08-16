@@ -133,7 +133,7 @@ typedef struct qae_dev_mem_info_s {
     };
     /* Pointer to kmalloc'd area rounded up to a page boundary */
     uint64_t phy_addr;
-    /* Physical address of the kmalloced area */
+    /* Physical address of the kmalloc area */
     union {
         void *virt_addr;
         uint64_t padding_virt_addr;
@@ -188,7 +188,7 @@ typedef struct qaeMemHeader {
 #endif /* WOLFSSL_TRACK_MEMORY */
 
 
-/* local varabiles */
+/* local variables */
 #ifndef USE_QAE_THREAD_LS
     static pthread_mutex_t g_memLock = PTHREAD_MUTEX_INITIALIZER;
 #endif

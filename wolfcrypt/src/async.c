@@ -157,7 +157,7 @@ static int wolfAsync_crypt_test(WC_ASYNC_DEV* asyncDev)
                 testDev->rsaFunc.outSz,
                 testDev->rsaFunc.type,
                 (RsaKey*)testDev->rsaFunc.key,
-                testDev->rsaFunc.rng
+                (WC_RNG*)testDev->rsaFunc.rng
             );
             break;
         }
@@ -283,6 +283,19 @@ static int wolfAsync_crypt_test(WC_ASYNC_DEV* asyncDev)
 
     return ret;
 }
+
+int wc_AsyncTestInit(WC_ASYNC_DEV* dev, int type)
+{
+    if (dev) {
+        WC_ASYNC_TEST* testDev = &dev->test;
+        if (testDev->type == ASYNC_TEST_NONE) {
+            testDev->type = type;
+            return 1; /* submit async test */
+        }
+    }
+    return 0;
+}
+
 #endif /* WOLFSSL_ASYNC_CRYPT_TEST */
 
 int wolfAsync_DevOpenThread(int *pDevId, void* threadId)
@@ -427,15 +440,15 @@ int wolfAsync_EventPop(WOLF_EVENT* event, enum WOLF_EVENT_TYPE event_type)
 
     if (event->type == event_type) {
         /* Trap the scenario where event is not done */
-        if (!event->done) {
+        if (event->state == WOLF_EVENT_STATE_PENDING) {
             return WC_PENDING_E;
         }
 
-        /* Reset pending flag */
-        event->pending = 0;
-
-        /* Check async return code */
+        /* Get async return code */
         ret = event->ret;
+
+        /* Reset state */
+        event->state = WOLF_EVENT_STATE_READY;
     }
     else {
         ret = WC_NOT_PENDING_E;
@@ -474,15 +487,14 @@ int wolfAsync_EventPoll(WOLF_EVENT* event, WOLF_EVENT_FLAG flags)
     #if defined(HAVE_CAVIUM)
         event->ret = NitroxCheckRequest(asyncDev, event);
     #elif defined(HAVE_INTEL_QA)
-        ret = IntelQaPoll(asyncDev); /* event->ret is populated via callback */
+        ret = IntelQaPoll(asyncDev);
     #elif defined(WOLFSSL_ASYNC_CRYPT_TEST)
         event->ret = wolfAsync_crypt_test(asyncDev);
     #endif
 
         /* If not pending then mark as done */
         if (event->ret != WC_PENDING_E) {
-            event->done = 1;
-            event->pending = 0;
+            event->state = WOLF_EVENT_STATE_DONE;
         }
     }
 
@@ -522,8 +534,7 @@ static int wolfAsync_CheckMultiReqBuf(WC_ASYNC_DEV* asyncDev,
 
                         /* If not pending then mark as done */
                         if (event->ret != WC_PENDING_E) {
-                            event->done = 1;
-                            event->pending = 0;
+                            event->state == WOLF_EVENT_STATE_DONE;
                             event->reqId = 0;
                         }
                         break;
@@ -600,7 +611,7 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
                     }
             #else
                 #if defined(HAVE_INTEL_QA)
-                    /* poll QAT hardware and use callbacks to populate event */
+                    /* poll QAT hardware, callback returns data, this thread poll sets event */
                     ret = IntelQaPoll(asyncDev);
                     if (ret != 0) {
                         break;
@@ -620,8 +631,7 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
 
                     /* If not pending then mark as done */
                     if (event->ret != WC_PENDING_E) {
-                        event->done = 1;
-                        event->pending = 0;
+                        event->state = WOLF_EVENT_STATE_DONE;
                     #if defined(HAVE_CAVIUM)
                         event->reqId = 0;
                     #endif
@@ -649,7 +659,7 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
             /* optional filter based on context */
             if (context_filter == NULL || event->context == context_filter) {
                 /* If event is done then process */
-                if (event->done) {
+                if (event->state == WOLF_EVENT_STATE_DONE) {
                     /* remove from queue */
                     ret = wolfEventQueue_Remove(queue, event);
                     if (ret < 0) break; /* exit for */
@@ -684,28 +694,27 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
 int wolfAsync_EventInit(WOLF_EVENT* event, WOLF_EVENT_TYPE type, void* context,
     word32 flags)
 {
-    int ret;
+    int ret = 0;
+    WC_ASYNC_DEV* asyncDev;
 
     if (event == NULL) {
         return BAD_FUNC_ARG;
     }
 
-    ret = wolfEvent_Init(event, type, context);
-    if (ret == 0) {
-        WC_ASYNC_DEV* asyncDev = wolfAsync_GetDev(event);
+    event->type = type;
+    event->context = context;
+#ifndef WC_NO_ASYNC_THREADING
+    event->threadId = wc_AsyncThreadId();
+#endif
+    event->ret = WC_PENDING_E;
+    event->state = WOLF_EVENT_STATE_PENDING;
 
-        event->dev.async = asyncDev;
-        event->pending = 1;
-        event->done = 0;
-        event->ret = WC_PENDING_E;
-        event->flags = flags;
-    #ifdef HAVE_CAVIUM
-        event->reqId = asyncDev->nitrox.reqId;
-    #elif defined(HAVE_INTEL_QA)
-        /* Add any event init for Intel QuickAssist */
-    #endif
-        ret = 0;
-    }
+    asyncDev = wolfAsync_GetDev(event);
+    event->dev.async = asyncDev;
+    event->flags = flags;
+#ifdef HAVE_CAVIUM
+    event->reqId = asyncDev->nitrox.reqId;
+#endif
 
     return ret;
 }
@@ -761,13 +770,15 @@ int wc_AsyncWait(int ret, WC_ASYNC_DEV* asyncDev, word32 event_flags)
             return BAD_FUNC_ARG;
 
         event = &asyncDev->event;
-        XMEMSET(event, 0, sizeof(WOLF_EVENT));
         ret = wolfAsync_EventInit(event, WOLF_EVENT_TYPE_ASYNC_WOLFCRYPT,
                                                         asyncDev, event_flags);
         if (ret == 0) {
             ret = wolfAsync_EventWait(event);
             if (ret == 0) {
                 ret = event->ret;
+
+                /* clear event */
+                event->state = WOLF_EVENT_STATE_READY;
             }
         }
     }
@@ -1067,6 +1078,11 @@ int wc_AsyncThreadJoin(pthread_t *thread)
 void wc_AsyncThreadYield(void)
 {
     sched_yield();
+}
+
+pthread_t wc_AsyncThreadId(void)
+{
+    return pthread_self();
 }
 
 #endif /* WC_NO_ASYNC_THREADING */

@@ -369,6 +369,9 @@ WOLFSSL_API int wc_AsyncWait(int ret, WC_ASYNC_DEV* asyncDev,
 
 WOLFSSL_API int wc_AsyncSleep(word32 ms);
 
+#ifdef WOLFSSL_ASYNC_CRYPT_TEST
+    WOLFSSL_API int wc_AsyncTestInit(WC_ASYNC_DEV* dev, int type);
+#endif
 
 /* Pthread Helpers */
 #ifndef WC_NO_ASYNC_THREADING
@@ -397,6 +400,7 @@ WOLFSSL_API int wc_AsyncThreadSetPolicyAndPriority(pthread_t *thread, word32 pol
     word32 priority);
 WOLFSSL_API int wc_AsyncThreadJoin(pthread_t *thread);
 WOLFSSL_API void wc_AsyncThreadYield(void);
+WOLFSSL_API pthread_t wc_AsyncThreadId(void);
 
 #endif /* WC_NO_ASYNC_THREADING */
 

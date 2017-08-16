@@ -79,7 +79,6 @@
 
 #define OS_HOST_TO_NW_32(uData) ByteReverseWord32(uData)
 
-
 static CpaInstanceHandle* g_cyInstances = NULL;
 static CpaInstanceInfo2* g_cyInstanceInfo = NULL;
 static Cpa32U* g_cyInstMap = NULL;
@@ -292,7 +291,7 @@ int IntelQaHardwareStart(const char* process_name, int limitDevAccess)
 
     status = cpaCyGetNumInstances(&g_numInstances);
     if (status != CPA_STATUS_SUCCESS || g_numInstances == 0) {
-        printf("IntelQA: Failed to get num of intstances! status %d\n",
+        printf("IntelQA: Failed to get num of instances! status %d\n",
                                                                     status);
         ret = INVALID_DEVID; goto error;
     }
@@ -401,6 +400,18 @@ int IntelQaHardwareStart(const char* process_name, int limitDevAccess)
             ret = INVALID_DEVID; goto error;
         }
     }
+
+#if defined(HAVE_ECC) && defined(HAVE_ECC_DHE)
+    g_qatEcdhY = XMALLOC(MAX_ECC_BYTES, NULL, DYNAMIC_TYPE_ASYNC_NUMA);
+    if (g_qatEcdhY == NULL) {
+        ret = MEMORY_E; goto error;
+    }
+    g_qatEcdhCofactor1 = XMALLOC(MAX_ECC_BYTES, NULL, DYNAMIC_TYPE_ASYNC_NUMA);
+    if (g_qatEcdhCofactor1 == NULL) {
+        ret = MEMORY_E; goto error;
+    }
+    *((word32*)g_qatEcdhCofactor1) = OS_HOST_TO_NW_32(1);
+#endif
 
     printf("IntelQA: Instances %d\n", g_numInstances);
     return ret;
@@ -520,7 +531,15 @@ static int IntelQaDevIsHash(WC_ASYNC_DEV* dev)
 
 static IntelQaSymCtx* IntelQaGetSymCtx(WC_ASYNC_DEV* dev)
 {
+#if defined(QAT_ENABLE_CRYPTO) && defined(QAT_ENABLE_HASH)
     return IntelQaDevIsHash(dev) ? &dev->qat.op.hash.ctx : &dev->qat.op.cipher.ctx;
+#elif defined(QAT_ENABLE_CRYPTO)
+    return IntelQaDevIsHash(dev) ? NULL : &dev->qat.op.cipher.ctx;
+#elif defined(QAT_ENABLE_HASH)
+    return IntelQaDevIsHash(dev) ? &dev->qat.op.hash.ctx : NULL;
+#else
+    return NULL;
+#endif
 }
 
 static int IntelQaDevIsSym(WC_ASYNC_DEV* dev)
@@ -591,28 +610,35 @@ int IntelQaDevCopy(WC_ASYNC_DEV* src, WC_ASYNC_DEV* dst)
 {
     int ret = 0;
 #if defined(QAT_ENABLE_HASH) || defined(QAT_ENABLE_CRYPTO)
-    IntelQaSymCtx* ctx;
-    #ifdef QAT_ENABLE_HASH
-        int isHash;
-    #endif
+    IntelQaSymCtx *ctxSrc, *ctxDst;
+#ifdef QAT_ENABLE_HASH
+    int isHash;
+#endif
 #endif
 
     if (src == NULL || dst == NULL)
         return BAD_FUNC_ARG;
 
 #if defined(QAT_ENABLE_HASH) || defined(QAT_ENABLE_CRYPTO)
+    ctxDst = IntelQaGetSymCtx(dst);
+    ctxSrc = IntelQaGetSymCtx(src);
 
-    ctx = IntelQaGetSymCtx(dst);
+    if (ctxDst == NULL || ctxSrc == NULL) {
+        return ret;
+    }
 
 #ifdef QAT_DEBUG
-    printf("IntelQaDevCopy: dev %p->%p, symCtx %p, symCtxSize %d\n",
-        src, dst, ctx->symCtx, ctx->symCtxSize);
+    printf("IntelQaDevCopy: dev %p->%p, symCtx %p (src %p), symCtxSize %d\n",
+        src, dst, ctxSrc->symCtx, ctxSrc->symCtxSrc, ctxSrc->symCtxSize);
 #endif
 
-    /* make sure symCtx is cleared, so new open will occur */
-    if (ctx) {
-        ctx->symCtx = NULL;
-    }
+    ctxDst->isCopy = 1;
+    /* force alloc/init on open for copy */
+    ctxDst->symCtx = NULL;
+    ctxDst->isOpen = 0;
+    /* if src is not open, then don't set source ctx */
+    if (!ctxSrc->isOpen)
+        ctxDst->symCtxSrc = NULL;
 
 #ifdef QAT_ENABLE_HASH
     isHash = IntelQaDevIsHash(src);
@@ -639,6 +665,7 @@ int IntelQaPoll(WC_ASYNC_DEV* dev)
 
 #ifndef QAT_USE_POLLING_THREAD
 	CpaStatus status;
+    WOLF_EVENT* event = &dev->event;
 
 #ifdef QAT_USE_POLLING_CHECK
     pthread_mutex_t* lock = &g_PollLock[dev->qat.devId];
@@ -662,6 +689,27 @@ int IntelQaPoll(WC_ASYNC_DEV* dev)
 		ret = -1;
 	}
 
+#ifndef WC_NO_ASYNC_THREADING
+    if (event->threadId == 0 || event->threadId == wc_AsyncThreadId())
+#endif
+    {
+        /* if event is done */
+        if (dev->qat.ret != WC_PENDING_E) {
+            /* perform cleanup */
+            IntelQaFreeFunc freeFunc = dev->qat.freeFunc;
+    #ifdef QAT_DEBUG
+            printf("IntelQaOpFree: Dev %p, FreeFunc %p\n", dev, freeFunc);
+    #endif
+            if (freeFunc) {
+                dev->qat.freeFunc = NULL;
+                freeFunc(dev);
+            }
+
+            /* return response code */
+            event->ret = dev->qat.ret;
+        }
+    }
+
 #ifdef QAT_USE_POLLING_CHECK
     /* indicate we are done polling */
     if (pthread_mutex_lock(lock) == 0) {
@@ -677,24 +725,6 @@ int IntelQaPoll(WC_ASYNC_DEV* dev)
 	return ret;
 }
 
-static int IntelQaPollBlockStatus(WC_ASYNC_DEV* dev, int status_wait)
-{
-    int ret;
-
-    do {
-        ret = IntelQaPoll(dev);
-
-        if (dev->qat.status != status_wait) {
-            break;
-        }
-        wc_AsyncThreadYield();
-    } while (1);
-    ret = dev->event.ret;
-
-    return ret;
-}
-
-#ifdef QAT_DEMO_MAIN
 static int IntelQaPollBlockRet(WC_ASYNC_DEV* dev, int ret_wait)
 {
     int ret;
@@ -702,16 +732,17 @@ static int IntelQaPollBlockRet(WC_ASYNC_DEV* dev, int ret_wait)
     do {
         ret = IntelQaPoll(dev);
 
-        if (dev->event.ret != ret_wait) {
+        if (dev->qat.ret != ret_wait) {
             break;
         }
+    #ifndef WC_NO_ASYNC_THREADING
         wc_AsyncThreadYield();
+    #endif
     } while (1);
-    ret = dev->event.ret;
+    ret = dev->qat.ret;
 
     return ret;
 }
-#endif
 
 int IntelQaGetCyInstanceCount(void)
 {
@@ -728,7 +759,7 @@ static INLINE int IntelQaHandleCpaStatus(WC_ASYNC_DEV* dev, CpaStatus status,
             *ret = WC_PENDING_E;
         }
         else {
-            *ret = IntelQaPollBlockStatus(dev, INVALID_STATUS);
+            *ret = IntelQaPollBlockRet(dev, WC_PENDING_E);
         }
     }
     else if (status == CPA_STATUS_RETRY) {
@@ -749,6 +780,12 @@ static INLINE int IntelQaHandleCpaStatus(WC_ASYNC_DEV* dev, CpaStatus status,
     return retry;
 }
 
+static INLINE void IntelQaOpInit(WC_ASYNC_DEV* dev, IntelQaFreeFunc freeFunc)
+{
+    dev->qat.ret = WC_PENDING_E;
+    dev->qat.freeFunc = freeFunc;
+}
+
 
 /* -------------------------------------------------------------------------- */
 /* RSA Algo */
@@ -756,9 +793,11 @@ static INLINE int IntelQaHandleCpaStatus(WC_ASYNC_DEV* dev, CpaStatus status,
 
 #ifndef NO_RSA
 
-static void IntelQaRsaPrivateFree(WC_ASYNC_DEV* dev,
-    CpaCyRsaDecryptOpData* opData, CpaFlatBuffer *outBuf)
+static void IntelQaRsaPrivateFree(WC_ASYNC_DEV* dev)
 {
+    CpaCyRsaDecryptOpData* opData = &dev->qat.op.rsa_priv.opData;
+    CpaFlatBuffer *outBuf = &dev->qat.op.rsa_priv.outBuf;
+
     if (opData) {
         if (opData->inputData.pData) {
             XFREE(opData->inputData.pData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
@@ -811,12 +850,10 @@ static void IntelQaRsaPrivateCallback(void *pCallbackTag,
         /* mark event result */
         ret = 0; /* success */
 	}
+    (void)opData;
 
-    /* make sure and perform cleanup before marking event */
-    IntelQaRsaPrivateFree(dev, opData, pOut);
-
-    dev->event.ret = ret;
-    dev->qat.status = status;
+    /* set return code to mark complete */
+    dev->qat.ret = ret;
 }
 
 int IntelQaRsaPrivate(WC_ASYNC_DEV* dev,
@@ -885,7 +922,7 @@ int IntelQaRsaPrivate(WC_ASYNC_DEV* dev,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLenPtr = outLen;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaOpInit(dev, IntelQaRsaPrivateFree);
 
     /* perform RSA decrypt */
     do {
@@ -908,7 +945,7 @@ exit:
     }
 
     /* handle cleanup */
-    IntelQaRsaPrivateFree(dev, opData, outBuf);
+    IntelQaRsaPrivateFree(dev);
 
 	return ret;
 }
@@ -982,7 +1019,7 @@ int IntelQaRsaCrtPrivate(WC_ASYNC_DEV* dev,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLenPtr = outLen;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaOpInit(dev, IntelQaRsaPrivateFree);
 
     /* perform RSA CRT decrypt */
     do {
@@ -1005,14 +1042,16 @@ exit:
     }
 
     /* handle cleanup */
-    IntelQaRsaPrivateFree(dev, opData, outBuf);
+    IntelQaRsaPrivateFree(dev);
 
     return ret;
 }
 
-static void IntelQaRsaPublicFree(WC_ASYNC_DEV* dev,
-    CpaCyRsaEncryptOpData* opData, CpaFlatBuffer* outBuf)
+static void IntelQaRsaPublicFree(WC_ASYNC_DEV* dev)
 {
+    CpaCyRsaEncryptOpData* opData = &dev->qat.op.rsa_pub.opData;
+    CpaFlatBuffer* outBuf = &dev->qat.op.rsa_pub.outBuf;
+
     if (opData) {
         if (opData->inputData.pData) {
             XFREE(opData->inputData.pData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
@@ -1063,12 +1102,10 @@ static void IntelQaRsaPublicCallback(void *pCallbackTag,
         /* mark event result */
         ret = 0; /* success */
     }
+    (void)opData;
 
-    /* make sure and perform cleanup before marking event */
-    IntelQaRsaPublicFree(dev, opData, pOut);
-
-    dev->event.ret = ret;
-    dev->qat.status = status;
+    /* set return code to mark complete */
+    dev->qat.ret = ret;
 }
 
 int IntelQaRsaPublic(WC_ASYNC_DEV* dev,
@@ -1130,7 +1167,7 @@ int IntelQaRsaPublic(WC_ASYNC_DEV* dev,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLenPtr = outLen;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaOpInit(dev, IntelQaRsaPublicFree);
 
     /* perform RSA encrypt */
     do {
@@ -1153,14 +1190,16 @@ exit:
     }
 
     /* handle cleanup */
-    IntelQaRsaPublicFree(dev, opData, outBuf);
+    IntelQaRsaPublicFree(dev);
 
 	return ret;
 }
 
-static void IntelQaRsaModExpFree(WC_ASYNC_DEV* dev,
-    CpaCyLnModExpOpData* opData, CpaFlatBuffer* target)
+static void IntelQaRsaModExpFree(WC_ASYNC_DEV* dev)
 {
+    CpaCyLnModExpOpData* opData = &dev->qat.op.rsa_modexp.opData;
+    CpaFlatBuffer* target = &dev->qat.op.rsa_modexp.target;
+
     if (opData) {
         if (opData->base.pData) {
             XFREE(opData->base.pData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
@@ -1208,12 +1247,10 @@ static void IntelQaRsaModExpCallback(void *pCallbackTag,
         /* mark event result */
         ret = 0; /* success */
     }
+    (void)opData;
 
-    /* make sure and perform cleanup before marking event */
-    IntelQaRsaModExpFree(dev, opData, pOut);
-
-    dev->event.ret = ret;
-    dev->qat.status = status;
+    /* set return code to mark complete */
+    dev->qat.ret = ret;
 }
 
 int IntelQaRsaExptMod(WC_ASYNC_DEV* dev,
@@ -1260,9 +1297,9 @@ int IntelQaRsaExptMod(WC_ASYNC_DEV* dev,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLenPtr = outLen;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaOpInit(dev, IntelQaRsaModExpFree);
 
-	/* make modxp call async */
+	/* make modexp call async */
     do {
         status = cpaCyLnModExp(dev->qat.handle,
                                callback,
@@ -1283,7 +1320,7 @@ exit:
     }
 
     /* handle cleanup */
-    IntelQaRsaModExpFree(dev, opData, target);
+    IntelQaRsaModExpFree(dev);
 
     return ret;
 }
@@ -1311,18 +1348,13 @@ static int IntelQaSymOpen(WC_ASYNC_DEV* dev, CpaCySymSessionSetupData* setup,
 
     ctx = IntelQaGetSymCtx(dev);
 
-    /* Determine size of session context to allocate */
-#if 1
-    status = cpaCySymSessionCtxGetDynamicSize(dev->qat.handle, setup, &sessionCtxSize);
-#else
+    /* Determine size of session context to allocate - use max size */
     status = cpaCySymSessionCtxGetSize(dev->qat.handle, setup, &sessionCtxSize);
-#endif
 
-    /* make sure sym ctx will fit */
-    if (ctx->symCtx != NULL && ctx->symCtxSize < sessionCtxSize) {
-        XFREE(ctx->symCtx, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA64);
-        ctx->symCtx = NULL;
-        ctx->symCtxSize = 0;
+    if (ctx->symCtxSize > 0 && ctx->symCtxSize > sessionCtxSize) {
+        printf("Symmetric context size error! Buf %d, Exp %d\n",
+            ctx->symCtxSize, sessionCtxSize);
+        return ASYNC_OP_E;
     }
 
     /* make sure session context is allocated */
@@ -1335,37 +1367,30 @@ static int IntelQaSymOpen(WC_ASYNC_DEV* dev, CpaCySymSessionSetupData* setup,
     }
     ctx->symCtxSize = sessionCtxSize;
 
-    /* open symetric session */
-    status = cpaCySymInitSession(dev->qat.handle, callback, setup, ctx->symCtx);
-    if (status != CPA_STATUS_SUCCESS) {
-        printf("cpaCySymInitSession failed! dev %p, status %d\n", dev, status);
-        XFREE(ctx->symCtx, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA64);
-        ctx->symCtx = NULL;
-        return ASYNC_INIT_E;
-    }
+    if (!ctx->isOpen) {
+        ctx->isOpen = 1;
 
-    ctx->isOpen = 1;
-
-    if (ctx->symCtxOpen) {
-        /* override memory with original (open) */
-        byte* symCtxDst = (byte*)ctx->symCtx;
-        byte* symCtxSrc = (byte*)ctx->symCtxOpen;
-        /* copy from hashStatePrefixBuffer to end */
-    #ifdef USE_LAC_SESSION_FOR_STRUCT_OFFSET
-        const word32 copyRegion = (word32)offsetof(lac_session_desc_t, hashStatePrefixBuffer);
-    #else
-        const word32 copyRegion = (41 * 16);
+    #ifdef QAT_DEBUG
+        printf("IntelQaSymOpen: InitSession dev %p, symCtx %p\n", dev, ctx->symCtx);
     #endif
-        XMEMCPY(&symCtxDst[copyRegion], &symCtxSrc[copyRegion],
-            sessionCtxSize - copyRegion);
+
+        /* open symetric session */
+        status = cpaCySymInitSession(dev->qat.handle, callback, setup, ctx->symCtx);
+        if (status != CPA_STATUS_SUCCESS) {
+            printf("cpaCySymInitSession failed! dev %p, status %d\n", dev, status);
+            XFREE(ctx->symCtx, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA64);
+            ctx->symCtx = NULL;
+            return ASYNC_INIT_E;
+        }
     }
-    else {
-        ctx->symCtxOpen = ctx->symCtx;
+
+    if (ctx->symCtxSrc == NULL) {
+        ctx->symCtxSrc = ctx->symCtx;
     }
 
 #ifdef QAT_DEBUG
-    printf("IntelQaSymOpen: dev %p, symCtx %p, symCtxSize %d\n",
-        dev, ctx->symCtx, ctx->symCtxSize);
+    printf("IntelQaSymOpen: dev %p, symCtx %p (src %p), symCtxSize %d, isCopy %d, isOpen %d\n",
+        dev, ctx->symCtx, ctx->symCtxSrc, ctx->symCtxSize, ctx->isCopy, ctx->isOpen);
 #endif
 
     return ret;
@@ -1386,15 +1411,21 @@ static int IntelQaSymClose(WC_ASYNC_DEV* dev, int doFree)
 
     ctx = IntelQaGetSymCtx(dev);
 
-#ifdef QAT_DEBUG
-    printf("IntelQaSymClose: dev %p, symCtx %p (open %p), symCtxSize %d, free %d\n",
-        dev, ctx->symCtx, ctx->symCtxOpen, ctx->symCtxSize, doFree);
+#ifdef QAT_ENABLE_HASH
+    isHash = IntelQaDevIsHash(dev);
 #endif
 
-    if (ctx->symCtx) {
+#ifdef QAT_DEBUG
+    printf("IntelQaSymClose: dev %p, symCtx %p (src %p), symCtxSize %d, isCopy %d, isOpen %d, doFree %d\n",
+        dev, ctx->symCtx, ctx->symCtxSrc, ctx->symCtxSize, ctx->isCopy, ctx->isOpen, doFree);
+#endif
 
+    if (ctx->symCtx == ctx->symCtxSrc) {
         if (ctx->isOpen) {
             ctx->isOpen = 0;
+        #ifdef QAT_DEBUG
+            printf("IntelQaSymClose: RemoveSession dev %p, symCtx %p\n", dev, ctx->symCtx);
+        #endif
             status = cpaCySymRemoveSession(dev->qat.handle, ctx->symCtx);
             if (status == CPA_STATUS_RETRY) {
                 printf("cpaCySymRemoveSession retry!\n");
@@ -1406,33 +1437,24 @@ static int IntelQaSymClose(WC_ASYNC_DEV* dev, int doFree)
                 ret = ASYNC_OP_E;
             }
         }
+    }
 
-        if (doFree) {
-            CpaCySymSessionCtx* symCtx = ctx->symCtx;
-
-            /* if we aren't a copy then clear open var */
-            if (ctx->symCtx == ctx->symCtxOpen)
-                ctx->symCtxOpen = NULL;
-
-            ctx->symCtx = NULL;
-            ctx->symCtxSize = 0;
-
-            XFREE(symCtx, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA64);
-        }
+    if (doFree) {
+        XFREE(ctx->symCtx, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA64);
+        ctx->symCtx = NULL;
+        ctx->symCtxSrc = NULL;
+        ctx->symCtxSize = 0;
     }
 
 #ifdef QAT_ENABLE_HASH
     /* make sure hash temp buffer is cleared */
-    isHash = IntelQaDevIsHash(dev);
+
     if (isHash) {
         if (dev->qat.op.hash.tmpIn) {
             XFREE(dev->qat.op.hash.tmpIn, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
         }
     }
 #endif
-
-    /* clear union */
-    XMEMSET(&dev->qat.op, 0, sizeof(dev->qat.op));
 
     return ret;
 }
@@ -1445,9 +1467,12 @@ static int IntelQaSymClose(WC_ASYNC_DEV* dev, int doFree)
 /* -------------------------------------------------------------------------- */
 
 #ifdef QAT_ENABLE_CRYPTO
-static void IntelQaSymCipherFree(WC_ASYNC_DEV* dev,
-    CpaCySymOpData* opData, CpaBufferList *pDstBuffer, int forceClose)
+static void IntelQaSymCipherFree(WC_ASYNC_DEV* dev)
 {
+    IntelQaSymCtx* ctx = &dev->qat.op.cipher.ctx;
+    CpaCySymOpData* opData = &ctx->opData;
+    CpaBufferList* pDstBuffer = &dev->qat.op.cipher.bufferList;
+
     if (opData) {
         if (opData->pAdditionalAuthData) {
             XFREE(opData->pAdditionalAuthData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
@@ -1474,10 +1499,8 @@ static void IntelQaSymCipherFree(WC_ASYNC_DEV* dev,
         XMEMSET(pDstBuffer, 0, sizeof(CpaBufferList));
     }
 
-    if (forceClose) {
-        /* close and free sym context */
-        IntelQaSymClose(dev, 0);
-    }
+    /* close and free sym context */
+    IntelQaSymClose(dev, 1);
 
     /* clear temp pointers */
     dev->qat.out = NULL;
@@ -1543,12 +1566,8 @@ static void IntelQaSymCipherCallback(void *pCallbackTag, CpaStatus status,
         }
     }
 
-    /* make sure and perform cleanup before marking event */
-    /* Free allocations */
-    IntelQaSymCipherFree(dev, opData, pDstBuffer, 0);
-
-    dev->event.ret = ret;
-    dev->qat.status = status;
+    /* set return code to mark complete */
+    dev->qat.ret = ret;
 }
 
 static int IntelQaSymCipher(WC_ASYNC_DEV* dev, byte* out, const byte* in,
@@ -1705,9 +1724,9 @@ static int IntelQaSymCipher(WC_ASYNC_DEV* dev, byte* out, const byte* in,
         dev->qat.op.cipher.authTag = NULL;
         dev->qat.op.cipher.authTagSz = 0;
     }
-    dev->qat.status = INVALID_STATUS;
+    IntelQaOpInit(dev, IntelQaSymCipherFree);
 
-    /* perform symetric AES operation async */
+    /* perform symmetric AES operation async */
     /* use same buffer list for in-place operation */
     do {
         status = cpaCySymPerformOp(dev->qat.handle,
@@ -1727,10 +1746,10 @@ exit:
     if (ret != 0) {
         printf("cpaCySymPerformOp Cipher failed! dev %p, status %d, ret %d\n",
             dev, status, ret);
-
-        /* handle cleanup */
-        IntelQaSymCipherFree(dev, opData, bufferList, 1);
     }
+
+    /* handle cleanup */
+    IntelQaSymCipherFree(dev);
 
     return ret;
 }
@@ -1895,9 +1914,11 @@ static int IntelQaSymHashGetInfo(CpaCySymHashAlgorithm hashAlgorithm,
     return 0;
 }
 
-static void IntelQaSymHashFree(WC_ASYNC_DEV* dev,
-    CpaCySymOpData* opData, CpaBufferList *pDstBuffer, int forceClose)
+static void IntelQaSymHashFree(WC_ASYNC_DEV* dev)
 {
+    IntelQaSymCtx* ctx = &dev->qat.op.hash.ctx;
+    CpaCySymOpData* opData = &ctx->opData;
+    CpaBufferList* pDstBuffer = dev->qat.op.hash.srcList;
     int idx;
 
     if (opData) {
@@ -1920,8 +1941,10 @@ static void IntelQaSymHashFree(WC_ASYNC_DEV* dev,
         XFREE(pDstBuffer, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
     }
 
-    /* if final or forced */
-    if (dev->qat.out || forceClose) {
+    /* if final */
+    if (dev->qat.out) {
+        int doFree = 0;
+
         /* free any tmp input */
         if (dev->qat.op.hash.tmpIn) {
             XFREE(dev->qat.op.hash.tmpIn, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
@@ -1930,8 +1953,16 @@ static void IntelQaSymHashFree(WC_ASYNC_DEV* dev,
         dev->qat.op.hash.tmpInSz = 0;
         dev->qat.op.hash.blockSize = 0;
 
+        if (ctx->isCopy || ctx->symCtx != ctx->symCtxSrc) {
+            doFree = 1;
+        }
+
+    #ifdef QAT_DEBUG
+        printf("IntelQaSymHashFree: dev %p, doFree %d\n", dev, doFree);
+    #endif
+
         /* close session */
-        IntelQaSymClose(dev, 0);
+        IntelQaSymClose(dev, doFree);
     }
 
     /* clear temp pointers */
@@ -1971,12 +2002,8 @@ static void IntelQaSymHashCallback(void *pCallbackTag, CpaStatus status,
         ret = 0; /* success */
     }
 
-    /* make sure and perform cleanup before marking event */
-    /* Free allocations */
-    IntelQaSymHashFree(dev, opData, pDstBuffer, 0);
-
-    dev->event.ret = ret;
-    dev->qat.status = status;
+    /* set return code to mark complete */
+    dev->qat.ret = ret;
 }
 
 /* For hash update call with out == NULL */
@@ -2002,7 +2029,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     Cpa32U digestSize;
     CpaCySymPacketType packetType;
     IntelQaSymCtx* ctx;
-
+    CpaCySymSessionSetupData setup;
     int bufferCount = 0;
     byte* buffers[MAX_QAT_HASH_BUFFERS] = {NULL};
     word32 buffersSz[MAX_QAT_HASH_BUFFERS] = {0};
@@ -2051,7 +2078,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
 
                 /* attempt to fill tmpIn and process block */
                 if (inOutSz < remainSz) {
-                    /* not enought to fill buffer */
+                    /* not enough to fill buffer */
                     XMEMCPY(&dev->qat.op.hash.tmpIn[dev->qat.op.hash.tmpInSz], in, inOutSz);
                     dev->qat.op.hash.tmpInSz += inOutSz;
                 }
@@ -2156,7 +2183,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
         }
 
         /* determine if this is full or partial */
-        if (ctx->symCtx == NULL && ctx->symCtxOpen == NULL) {
+        if (ctx->symCtxSrc == NULL || (!ctx->isOpen && !ctx->isCopy)) {
             packetType = CPA_CY_SYM_PACKET_TYPE_FULL;
         }
         else {
@@ -2177,6 +2204,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     if (srcList == NULL) {
         ret = MEMORY_E; goto exit;
     }
+    dev->qat.op.hash.srcList = srcList;
     XMEMSET(srcList, 0, bufferListSize);
     srcList->pBuffers = (CpaFlatBuffer*)(
         (byte*)srcList + sizeof(CpaBufferList));
@@ -2200,55 +2228,58 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
         XMEMCPY(digestBuf, out, digestSize);
     }
 
-    /* allocate buffers */
-    opData = &ctx->opData;
-    XMEMSET(opData, 0, sizeof(CpaCySymOpData));
-
     /* setup */
-    if (ctx->symCtx == NULL) {
-        CpaCySymSessionSetupData setup;
-        XMEMSET(&setup, 0, sizeof(CpaCySymSessionSetupData));
-        setup.sessionPriority = CPA_CY_PRIORITY_NORMAL;
-        setup.symOperation = CPA_CY_SYM_OP_HASH;
-        setup.partialsNotRequired = (packetType == CPA_CY_SYM_PACKET_TYPE_FULL) ? CPA_TRUE : CPA_FALSE;
-        setup.hashSetupData.hashMode = hashMode;
-        setup.hashSetupData.hashAlgorithm = hashAlgorithm;
-        setup.hashSetupData.digestResultLenInBytes = digestSize;
-        setup.hashSetupData.authModeSetupData.authKey = authKey;
-        setup.hashSetupData.authModeSetupData.authKeyLenInBytes = authKeyLenInBytes;
+    XMEMSET(&setup, 0, sizeof(CpaCySymSessionSetupData));
+    setup.sessionPriority = CPA_CY_PRIORITY_NORMAL;
+    setup.symOperation = CPA_CY_SYM_OP_HASH;
+    setup.partialsNotRequired = (packetType == CPA_CY_SYM_PACKET_TYPE_FULL) ? CPA_TRUE : CPA_FALSE;
+    setup.hashSetupData.hashMode = hashMode;
+    setup.hashSetupData.hashAlgorithm = hashAlgorithm;
+    setup.hashSetupData.digestResultLenInBytes = digestSize;
+    setup.hashSetupData.authModeSetupData.authKey = authKey;
+    setup.hashSetupData.authModeSetupData.authKeyLenInBytes = authKeyLenInBytes;
 
-        /* open session */
-        ret = IntelQaSymOpen(dev, &setup, callback);
-        if (ret != 0) {
-            goto exit;
-        }
+    /* open session */
+    ret = IntelQaSymOpen(dev, &setup, callback);
+    if (ret != 0) {
+        goto exit;
+    }
 
-        /* note: this is a workaround to an issue with copying the symertic context */
-        if (packetType == CPA_CY_SYM_PACKET_TYPE_LAST_PARTIAL) {
-            /* set the partialState */
-        #ifdef USE_LAC_SESSION_FOR_STRUCT_OFFSET
-            const word32 partialStateOffset = (word32)offsetof(lac_session_desc_t, partialState);
-        #else
-            const word32 partialStateOffset = (29 * 16);
-        #endif
-            /* make sure partial state is partial */
-            word32 priorVal = *(word32*)(((byte*)ctx->symCtx) + partialStateOffset);
-            if (priorVal == 1) {
-                *(word32*)(((byte*)ctx->symCtx) + partialStateOffset) =
-                    CPA_CY_SYM_PACKET_TYPE_PARTIAL;
-            }
-            else {
-                /* try with + 32 (alignment) */
-                priorVal = *(word32*)(((byte*)ctx->symCtx) + partialStateOffset + (2 * 16));
-                if (priorVal == 1) {
-                    *(word32*)(((byte*)ctx->symCtx) + partialStateOffset + (2 * 16)) =
-                    CPA_CY_SYM_PACKET_TYPE_PARTIAL;
-                }
+    /* workarounds for handling symmetric context copies */
+    if (packetType == CPA_CY_SYM_PACKET_TYPE_LAST_PARTIAL) {
+        /* set the partialState for partial  */
+    #ifdef USE_LAC_SESSION_FOR_STRUCT_OFFSET
+        word32 parStaOffset = (word32)offsetof(lac_session_desc_t, partialState);
+    #else
+        word32 parStaOffset = (28 * 16);
+    #endif
+
+        /* make sure partialState is partial, try + 16 alignments as well */
+        for (i = 0; i < 4; i++) {
+            word32* priorVal = (word32*)((byte*)ctx->symCtx + parStaOffset + (i * 16));
+            if (*priorVal == CPA_CY_SYM_PACKET_TYPE_FULL) {
+                *priorVal = CPA_CY_SYM_PACKET_TYPE_PARTIAL;
+                break;
             }
         }
     }
+    if (ctx->symCtx != ctx->symCtxSrc) {
+        /* copy hash state (digest into new symmetric context) */
+        byte* symCtxDst = (byte*)ctx->symCtx;
+        byte* symCtxSrc = (byte*)ctx->symCtxSrc;
+        /* copy from hashStatePrefixBuffer to end */
+    #ifdef USE_LAC_SESSION_FOR_STRUCT_OFFSET
+        const word32 copyRegion = (word32)offsetof(lac_session_desc_t, hashStatePrefixBuffer);
+    #else
+        const word32 copyRegion = (41 * 16);
+    #endif
+        XMEMCPY(&symCtxDst[copyRegion], &symCtxSrc[copyRegion],
+            ctx->symCtxSize - copyRegion);
+    }
 
     /* operation data */
+    opData = &ctx->opData;
+    XMEMSET(opData, 0, sizeof(CpaCySymOpData));
     opData->sessionCtx = ctx->symCtx;
     opData->packetType = packetType;
     opData->messageLenToHashInBytes = totalMsgSz;
@@ -2257,9 +2288,9 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLen = inOutSz;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaOpInit(dev, IntelQaSymHashFree);
 
-    /* perform symetric hash operation async */
+    /* perform symmetric hash operation async */
     /* use same buffer list for in-place operation */
     do {
         status = cpaCySymPerformOp(dev->qat.handle,
@@ -2281,7 +2312,7 @@ exit:
             dev, status, ret);
 
         /* handle cleanup */
-        IntelQaSymHashFree(dev, opData, srcList, 1);
+        IntelQaSymHashFree(dev);
     }
 
     return ret;
@@ -2396,10 +2427,12 @@ int IntelQaSymMd5(WC_ASYNC_DEV* dev, byte* out, const byte* in, word32 sz)
 #ifdef HAVE_ECC
 
 #ifdef HAVE_ECC_DHE
-static void IntelQaEcdhFree(WC_ASYNC_DEV* dev,
-    CpaCyEcdhPointMultiplyOpData* opData,
-    CpaFlatBuffer* resultX, CpaFlatBuffer* resultY)
+static void IntelQaEcdhFree(WC_ASYNC_DEV* dev)
 {
+    CpaCyEcdhPointMultiplyOpData* opData = &dev->qat.op.ecc_ecdh.opData;
+    CpaFlatBuffer* resultX = &dev->qat.op.ecc_ecdh.pXk;
+    CpaFlatBuffer* resultY = &dev->qat.op.ecc_ecdh.pYk;
+
     if (resultX) {
         if (resultX->pData) {
             XFREE(resultX->pData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
@@ -2467,12 +2500,11 @@ static void IntelQaEcdhCallback(void *pCallbackTag, CpaStatus status,
             ret = 0; /* success */
         }
     }
+    (void)opData;
+    (void)pYk;
 
-    /* make sure and perform cleanup before marking event */
-    IntelQaEcdhFree(dev, opData, pXk, pYk);
-
-    dev->event.ret = ret;
-    dev->qat.status = status;
+    /* set return code to mark complete */
+    dev->qat.ret = ret;
 }
 
 int IntelQaEcdh(WC_ASYNC_DEV* dev, WC_BIGINT* k, WC_BIGINT* xG,
@@ -2519,14 +2551,6 @@ int IntelQaEcdh(WC_ASYNC_DEV* dev, WC_BIGINT* k, WC_BIGINT* xG,
     /* if using default value 1 then use shared global */
     opData->h.dataLenInBytes = 4;
     if (cofactor == 1) {
-        if (g_qatEcdhCofactor1 == NULL) {
-            g_qatEcdhCofactor1 = XMALLOC(opData->h.dataLenInBytes, dev->heap,
-                DYNAMIC_TYPE_ASYNC_NUMA);
-            if (g_qatEcdhCofactor1 == NULL) {
-                ret = MEMORY_E; goto exit;
-            }
-            *((word32*)g_qatEcdhCofactor1) = OS_HOST_TO_NW_32(cofactor);
-        }
         opData->h.pData = g_qatEcdhCofactor1;
     }
     else {
@@ -2542,19 +2566,13 @@ int IntelQaEcdh(WC_ASYNC_DEV* dev, WC_BIGINT* k, WC_BIGINT* xG,
     pXk->dataLenInBytes = a->len; /* bytes key size / 8 (aligned) */
     pXk->pData = XREALLOC(out, pXk->dataLenInBytes, dev->heap,
         DYNAMIC_TYPE_ASYNC_NUMA);
-    if (g_qatEcdhY == NULL) {
-        g_qatEcdhY = XMALLOC(MAX_ECC_BYTES, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
-        if (g_qatEcdhY == NULL) {
-            ret = MEMORY_E; goto exit;
-        }
-    }
     pYk->dataLenInBytes = a->len;
     pYk->pData = g_qatEcdhY;
 
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLenPtr = outlen;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaOpInit(dev, IntelQaEcdhFree);
 
     /* perform point multiply */
     do {
@@ -2576,10 +2594,10 @@ exit:
     if (ret != 0) {
         printf("cpaCyEcdhPointMultiply failed! dev %p, status %d, ret %d\n",
             dev, status, ret);
-
-        /* handle cleanup */
-        IntelQaEcdhFree(dev, opData, pXk, pYk);
     }
+
+    /* handle cleanup */
+    IntelQaEcdhFree(dev);
 
     return ret;
 }
@@ -2588,9 +2606,12 @@ exit:
 
 #ifdef HAVE_ECC_SIGN
 
-static void IntelQaEcdsaSignFree(WC_ASYNC_DEV* dev,
-    CpaCyEcdsaSignRSOpData* opData, CpaFlatBuffer *pR, CpaFlatBuffer *pS)
+static void IntelQaEcdsaSignFree(WC_ASYNC_DEV* dev)
 {
+    CpaCyEcdsaSignRSOpData* opData = &dev->qat.op.ecc_sign.opData;
+    CpaFlatBuffer *pR = &dev->qat.op.ecc_sign.R;
+    CpaFlatBuffer *pS = &dev->qat.op.ecc_sign.S;
+
     if (opData) {
         XMEMSET(opData, 0, sizeof(CpaCyEcdsaSignRSOpData));
     }
@@ -2644,12 +2665,10 @@ static void IntelQaEcdsaSignCallback(void *pCallbackTag,
             ret = IntelQaFlatBufferToBigInt(pS, dev->qat.op.ecc_sign.pS);
         }
     }
+    (void)opData;
 
-    /* make sure and perform cleanup before marking event */
-    IntelQaEcdsaSignFree(dev, opData, pR, pS);
-
-    dev->event.ret = ret;
-    dev->qat.status = status;
+    /* set return code to mark complete */
+    dev->qat.ret = ret;
 }
 
 int IntelQaEcdsaSign(WC_ASYNC_DEV* dev,
@@ -2709,7 +2728,7 @@ int IntelQaEcdsaSign(WC_ASYNC_DEV* dev,
     /* store info needed for output */
     dev->qat.op.ecc_sign.pR = r;
     dev->qat.op.ecc_sign.pS = s;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaOpInit(dev, IntelQaEcdsaSignFree);
 
     /* Perform ECDSA sign */
     do {
@@ -2730,10 +2749,10 @@ exit:
 
     if (ret != 0) {
         printf("cpaCyEcdsaSignRS failed! dev %p, status %d, ret %d\n", dev, status, ret);
-
-        /* handle cleanup */
-        IntelQaEcdsaSignFree(dev, opData, pR, pS);
     }
+
+    /* handle cleanup */
+    IntelQaEcdsaSignFree(dev);
 
     return ret;
 }
@@ -2742,9 +2761,10 @@ exit:
 
 
 #ifdef HAVE_ECC_VERIFY
-static void IntelQaEcdsaVerifyFree(WC_ASYNC_DEV* dev,
-    CpaCyEcdsaVerifyOpData* opData)
+static void IntelQaEcdsaVerifyFree(WC_ASYNC_DEV* dev)
 {
+    CpaCyEcdsaVerifyOpData* opData = &dev->qat.op.ecc_verify.opData;
+
     if (opData) {
         XMEMSET(opData, 0, sizeof(CpaCyEcdsaVerifyOpData));
     }
@@ -2780,12 +2800,10 @@ static void IntelQaEcdsaVerifyCallback(void *pCallbackTag,
             ret = 0; /* success */
         }
     }
+    (void)opData;
 
-    /* make sure and perform cleanup before marking event */
-    IntelQaEcdsaVerifyFree(dev, opData);
-
-    dev->event.ret = ret;
-    dev->qat.status = status;
+    /* set return code to mark complete */
+    dev->qat.ret = ret;
 }
 
 int IntelQaEcdsaVerify(WC_ASYNC_DEV* dev, WC_BIGINT* m,
@@ -2830,7 +2848,7 @@ int IntelQaEcdsaVerify(WC_ASYNC_DEV* dev, WC_BIGINT* m,
 
     /* store info needed for output */
     dev->qat.op.ecc_verify.stat = stat;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaOpInit(dev, IntelQaEcdsaVerifyFree);
 
     /* Perform ECDSA verify */
     do {
@@ -2849,10 +2867,10 @@ exit:
 
     if (ret != 0) {
         printf("cpaCyEcdsaVerify failed! dev %p, status %d, ret %d\n", dev, status, ret);
-
-        /* handle cleanup */
-        IntelQaEcdsaVerifyFree(dev, opData);
     }
+
+    /* handle cleanup */
+    IntelQaEcdsaVerifyFree(dev);
 
     return ret;
 }
@@ -2863,9 +2881,11 @@ exit:
 
 #ifndef NO_DH
 
-static void IntelQaDhKeyGenFree(WC_ASYNC_DEV* dev,
-    CpaCyDhPhase1KeyGenOpData* opData, CpaFlatBuffer* pOut)
+static void IntelQaDhKeyGenFree(WC_ASYNC_DEV* dev)
 {
+    CpaCyDhPhase1KeyGenOpData* opData = &dev->qat.op.dh_gen.opData;
+    CpaFlatBuffer* pOut = &dev->qat.op.dh_gen.pOut;
+
     if (opData) {
         XMEMSET(opData, 0, sizeof(CpaCyDhPhase1KeyGenOpData));
     }
@@ -2912,12 +2932,10 @@ static void IntelQaDhKeyGenCallback(void *pCallbackTag, CpaStatus status,
         /* mark event result */
         ret = 0; /* success */
     }
+    (void)opData;
 
-    /* make sure and perform cleanup before marking event */
-    IntelQaDhKeyGenFree(dev, opData, pOut);
-
-    dev->event.ret = ret;
-    dev->qat.status = status;
+    /* set return code to mark complete */
+    dev->qat.ret = ret;
 }
 
 int IntelQaDhKeyGen(WC_ASYNC_DEV* dev, WC_BIGINT* p, WC_BIGINT* g,
@@ -2960,7 +2978,7 @@ int IntelQaDhKeyGen(WC_ASYNC_DEV* dev, WC_BIGINT* p, WC_BIGINT* g,
     *pubSz = p->len;
     dev->qat.out = pub;
     dev->qat.outLenPtr = pubSz;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaOpInit(dev, IntelQaDhKeyGenFree);
 
     /* Perform DhKeyGen */
     do {
@@ -2980,17 +2998,19 @@ exit:
     if (ret != 0) {
         printf("cpaCyDhKeyGenPhase1 failed! dev %p, status %d, ret %d\n",
             dev, status, ret);
-
-        /* handle cleanup */
-        IntelQaDhKeyGenFree(dev, opData, pOut);
     }
+
+    /* handle cleanup */
+    IntelQaDhKeyGenFree(dev);
 
     return ret;
 }
 
-static void IntelQaDhAgreeFree(WC_ASYNC_DEV* dev,
-    CpaCyDhPhase2SecretKeyGenOpData* opData, CpaFlatBuffer* pOut)
+static void IntelQaDhAgreeFree(WC_ASYNC_DEV* dev)
 {
+    CpaCyDhPhase2SecretKeyGenOpData* opData = &dev->qat.op.dh_agree.opData;
+    CpaFlatBuffer* pOut = &dev->qat.op.dh_agree.pOut;
+
     if (pOut) {
         if (pOut->pData) {
             XFREE(pOut->pData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
@@ -3045,12 +3065,10 @@ static void IntelQaDhAgreeCallback(void *pCallbackTag, CpaStatus status,
         /* mark event result */
         ret = 0; /* success */
     }
+    (void)opData;
 
-    /* make sure and perform cleanup before marking event */
-    IntelQaDhAgreeFree(dev, opData, pOut);
-
-    dev->event.ret = ret;
-    dev->qat.status = status;
+    /* set return code to mark complete */
+    dev->qat.ret = ret;
 }
 
 int IntelQaDhAgree(WC_ASYNC_DEV* dev, WC_BIGINT* p,
@@ -3097,7 +3115,7 @@ int IntelQaDhAgree(WC_ASYNC_DEV* dev, WC_BIGINT* p,
     /* store info needed for output */
     dev->qat.out = agree;
     dev->qat.outLenPtr = agreeSz;
-    dev->qat.status = INVALID_STATUS;
+    IntelQaOpInit(dev, IntelQaDhAgreeFree);
 
     /* Perform DhKeyGen */
     do {
@@ -3117,10 +3135,10 @@ exit:
     if (ret != 0) {
         printf("cpaCyDhKeyGenPhase2Secret failed! dev %p, status %d, ret %d\n",
             dev, status, ret);
-
-        /* handle cleanup */
-        IntelQaDhAgreeFree(dev, opData, pOut);
     }
+
+    /* handle cleanup */
+    IntelQaDhAgreeFree(dev);
 
     return ret;
 }
@@ -3236,12 +3254,10 @@ static int IntelQaDrbgClose(WC_ASYNC_DEV* dev)
     return 0;
 }
 
-static void IntelQaDrbgFree(WC_ASYNC_DEV* dev, CpaCyDrbgGenOpData* opData,
-    CpaFlatBuffer *pOut, int forceClose)
+static void IntelQaDrbgFree(WC_ASYNC_DEV* dev)
 {
-    if (forceClose) {
-        IntelQaDrbgClose(dev);
-    }
+    CpaCyDrbgGenOpData* opData = &dev->qat.op.drbg.opData;
+    CpaFlatBuffer* pOut = &dev->qat.op.drbg.pOut;
 
     if (pOut) {
         if (pOut->pData) {
@@ -3251,7 +3267,7 @@ static void IntelQaDrbgFree(WC_ASYNC_DEV* dev, CpaCyDrbgGenOpData* opData,
         XMEMSET(pOut, 0, sizeof(CpaFlatBuffer));
     }
 
-    if (opData && forceClose) {
+    if (opData) {
         XMEMSET(opData, 0, sizeof(CpaCyDrbgGenOpData));
     }
 
@@ -3280,12 +3296,10 @@ static void IntelQaDrbgCallback(void *pCallbackTag, CpaStatus status,
         /* mark event result */
         ret = 0; /* success */
     }
+    (void)opData;
 
-    /* make sure and perform cleanup before marking event */
-    IntelQaDrbgFree(dev, opData, pOut, 0);
-
-    dev->event.ret = ret;
-    dev->qat.status = status;
+    /* set return code to mark complete */
+    dev->qat.ret = ret;
 }
 
 int IntelQaDrbg(WC_ASYNC_DEV* dev, byte* rngBuf, word32 rngSz)
@@ -3374,7 +3388,7 @@ int IntelQaDrbg(WC_ASYNC_DEV* dev, byte* rngBuf, word32 rngSz)
 
         /* store info needed for output */
         dev->qat.out = &rngBuf[idx];
-        dev->qat.status = INVALID_STATUS;
+        IntelQaOpInit(dev, IntelQaDrbgFree);
 
         /* Perform DRBG generation */
         do {
@@ -3393,10 +3407,10 @@ exit:
     if (ret != 0) {
         printf("cpaCyDrbgGen failed! dev %p, status %d, ret %d\n",
             dev, status, ret);
-
-        /* handle cleanup */
-        IntelQaDrbgFree(dev, opData, pOut, 1);
     }
+
+    /* handle cleanup */
+    IntelQaDrbgFree(dev);
 
     return ret;
 }

@@ -1,4 +1,4 @@
-/* cavium-nitrox.c
+/* cavium_nitrox.c
  *
  * Copyright (C) 2006-2016 wolfSSL Inc.
  *
@@ -73,6 +73,13 @@ int NitroxTranslateResponseCode(int ret)
     return ret;
 }
 
+static INLINE void NitroxDevClear(WC_ASYNC_DEV* dev)
+{
+    /* values that must be reset prior to calling algo */
+    /* this is because operation may complete before added to event list */
+    dev->event.ret = WC_PENDING_E;
+    dev->event.state = WOLF_EVENT_STATE_PENDING;
+}
 
 CspHandle NitroxGetDeviceHandle(void)
 {
@@ -202,6 +209,9 @@ int NitroxRsaExptMod(const byte* in, word32 inLen,
 
     (void)outLen;
 
+    /* init return codes */
+    NitroxDevClear(&key->asyncDev);
+
 #ifdef HAVE_CAVIUM_V
     ret = CspMe(key->asyncDev.nitrox.devId, CAVIUM_REQ_MODE, CAVIUM_SSL_GRP,
             CAVIUM_DPORT, modLen, expLen, inLen, modulus, exponent, (Uint8*)in,
@@ -231,6 +241,9 @@ int NitroxRsaPublicEncrypt(const byte* in, word32 inLen, byte* out,
                                             outLen < (word32)key->n.raw.len) {
         return BAD_FUNC_ARG;
     }
+
+    /* init return codes */
+    NitroxDevClear(&key->asyncDev);
 
 #ifdef HAVE_CAVIUM_V
     ret = CspPkcs1v15Enc(key->asyncDev.nitrox.devId, CAVIUM_REQ_MODE,
@@ -266,6 +279,9 @@ int NitroxRsaPrivateDecrypt(const byte* in, word32 inLen, byte* out,
         return BAD_FUNC_ARG;
     }
 
+    /* init return codes */
+    NitroxDevClear(&key->asyncDev);
+
 #ifdef HAVE_CAVIUM_V
     ret = CspPkcs1v15CrtDec(key->asyncDev.nitrox.devId, CAVIUM_REQ_MODE,
         CAVIUM_SSL_GRP, CAVIUM_DPORT, BT2, key->n.raw.len, key->q.raw.buf,
@@ -298,6 +314,9 @@ int NitroxRsaSSL_Sign(const byte* in, word32 inLen, byte* out,
         return BAD_FUNC_ARG;
     }
 
+    /* init return codes */
+    NitroxDevClear(&key->asyncDev);
+
 #ifdef HAVE_CAVIUM_V
     ret = CspPkcs1v15CrtEnc(key->asyncDev.nitrox.devId, CAVIUM_REQ_MODE,
         CAVIUM_SSL_GRP, CAVIUM_DPORT, BT1, key->n.raw.len, (word16)inLen,
@@ -326,6 +345,9 @@ int NitroxRsaSSL_Verify(const byte* in, word32 inLen, byte* out,
     if (key == NULL || in == NULL || out == NULL || inLen != (word32)key->n.raw.len) {
         return BAD_FUNC_ARG;
     }
+
+    /* init return codes */
+    NitroxDevClear(&key->asyncDev);
 
 #ifdef HAVE_CAVIUM_V
     ret = CspPkcs1v15Dec(key->asyncDev.nitrox.devId, CAVIUM_REQ_MODE,
@@ -376,6 +398,9 @@ int NitroxAesCbcEncrypt(Aes* aes, byte* out, const byte* in, word32 length)
     if (ret != 0) {
         return ret;
     }
+
+    /* init return codes */
+    NitroxDevClear(&aes->asyncDev);
 
     while (length > NITROX_MAX_BUF_LEN) {
         word16 slen = (word16)NITROX_MAX_BUF_LEN;
@@ -435,6 +460,9 @@ int NitroxAesCbcDecrypt(Aes* aes, byte* out, const byte* in, word32 length)
     if (ret != 0) {
         return ret;
     }
+
+    /* init return codes */
+    NitroxDevClear(&aes->asyncDev);
 
     while (length > NITROX_MAX_BUF_LEN) {
         word16 slen = (word16)NITROX_MAX_BUF_LEN;
@@ -503,6 +531,9 @@ void NitroxArc4Process(Arc4* arc4, byte* out, const byte* in, word32 length)
     int ret;
     wolfssl_word offset = 0;
 
+    /* init return codes */
+    NitroxDevClear(&arc4->asyncDev);
+
     while (length > NITROX_MAX_BUF_LEN) {
         word16 slen = (word16)NITROX_MAX_BUF_LEN;
         ret = CspEncryptRc4(CAVIUM_BLOCKING,
@@ -536,6 +567,9 @@ int NitroxDes3CbcEncrypt(Des3* des3, byte* out, const byte* in, word32 length)
 {
     wolfssl_word offset = 0;
     int ret;
+
+    /* init return codes */
+    NitroxDevClear(&des3->asyncDev);
 
     while (length > NITROX_MAX_BUF_LEN) {
         word16 slen = (word16)NITROX_MAX_BUF_LEN;
@@ -588,6 +622,9 @@ int NitroxDes3CbcDecrypt(Des3* des3, byte* out, const byte* in, word32 length)
 {
     wolfssl_word offset = 0;
     int ret;
+
+    /* init return codes */
+    NitroxDevClear(&des3->asyncDev);
 
     while (length > NITROX_MAX_BUF_LEN) {
         word16 slen = (word16)NITROX_MAX_BUF_LEN;
@@ -743,6 +780,9 @@ int NitroxHmacFinal(Hmac* hmac, int type, byte* hash, word16 hashLen)
         return NOT_COMPILED_IN;
     }
 
+    /* init return codes */
+    NitroxDevClear(&hmac->asyncDev);
+
 #ifdef HAVE_CAVIUM_V
     ret = CspHmac(hmac->asyncDev.nitrox.devId, CAVIUM_BLOCKING,
         DMA_DIRECT_DIRECT, CAVIUM_SSL_GRP, CAVIUM_DPORT, cav_type,
@@ -770,6 +810,9 @@ int NitroxRngGenerateBlock(WC_RNG* rng, byte* output, word32 sz)
     int ret;
     wolfssl_word offset = 0;
     CavReqId     requestId;
+
+    /* init return codes */
+    NitroxDevClear(&rng->asyncDev);
 
     while (sz > NITROX_MAX_BUF_LEN) {
         word16 slen = (word16)NITROX_MAX_BUF_LEN;
