@@ -231,8 +231,6 @@ WOLFSSL_LOCAL int IntelQaPoll(struct WC_ASYNC_DEV* dev);
 
 WOLFSSL_LOCAL int IntelQaGetCyInstanceCount(void);
 
-WOLFSSL_LOCAL void IntelQaOpFree(struct WC_ASYNC_DEV* dev);
-
 #ifndef NO_RSA
     WOLFSSL_LOCAL int IntelQaRsaPrivate(struct WC_ASYNC_DEV* dev,
                             const byte* in, word32 inLen,

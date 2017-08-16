@@ -693,11 +693,21 @@ int IntelQaPoll(WC_ASYNC_DEV* dev)
     if (event->threadId == 0 || event->threadId == wc_AsyncThreadId())
 #endif
     {
-        /* perform cleanup */
-        IntelQaOpFree(dev);
+        /* if event is done */
+        if (dev->qat.ret != WC_PENDING_E) {
+            /* perform cleanup */
+            IntelQaFreeFunc freeFunc = dev->qat.freeFunc;
+    #ifdef QAT_DEBUG
+            printf("IntelQaOpFree: Dev %p, FreeFunc %p\n", dev, freeFunc);
+    #endif
+            if (freeFunc) {
+                dev->qat.freeFunc = NULL;
+                freeFunc(dev);
+            }
 
-        /* return response code */
-        event->ret = dev->qat.ret;
+            /* return response code */
+            event->ret = dev->qat.ret;
+        }
     }
 
 #ifdef QAT_USE_POLLING_CHECK
@@ -770,23 +780,10 @@ static INLINE int IntelQaHandleCpaStatus(WC_ASYNC_DEV* dev, CpaStatus status,
     return retry;
 }
 
-static INLINE void IntelQaOpInit(WC_ASYNC_DEV* dev)
+static INLINE void IntelQaOpInit(WC_ASYNC_DEV* dev, IntelQaFreeFunc freeFunc)
 {
-    /* values that must be reset prior to calling algo */
-    /* this is because operation may complete before added to event list */
     dev->qat.ret = WC_PENDING_E;
-}
-
-void IntelQaOpFree(WC_ASYNC_DEV* dev)
-{
-    if (dev && dev->qat.freeFunc) {
-#ifdef QAT_DEBUG
-        printf("IntelQaOpFree: Dev %p, FreeFunc %p\n", dev, dev->qat.freeFunc);
-#endif
-        IntelQaFreeFunc freeFunc = dev->qat.freeFunc;
-        dev->qat.freeFunc = NULL;
-        freeFunc(dev);
-    }
+    dev->qat.freeFunc = freeFunc;
 }
 
 
@@ -855,8 +852,7 @@ static void IntelQaRsaPrivateCallback(void *pCallbackTag,
 	}
     (void)opData;
 
-    /* set cleanup function and return code (to mark complete) */
-    dev->qat.freeFunc = IntelQaRsaPrivateFree;
+    /* set return code to mark complete */
     dev->qat.ret = ret;
 }
 
@@ -926,7 +922,7 @@ int IntelQaRsaPrivate(WC_ASYNC_DEV* dev,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLenPtr = outLen;
-    IntelQaOpInit(dev);
+    IntelQaOpInit(dev, IntelQaRsaPrivateFree);
 
     /* perform RSA decrypt */
     do {
@@ -1023,7 +1019,7 @@ int IntelQaRsaCrtPrivate(WC_ASYNC_DEV* dev,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLenPtr = outLen;
-    IntelQaOpInit(dev);
+    IntelQaOpInit(dev, IntelQaRsaPrivateFree);
 
     /* perform RSA CRT decrypt */
     do {
@@ -1108,8 +1104,7 @@ static void IntelQaRsaPublicCallback(void *pCallbackTag,
     }
     (void)opData;
 
-    /* set cleanup function and return code (to mark complete) */
-    dev->qat.freeFunc = IntelQaRsaPublicFree;
+    /* set return code to mark complete */
     dev->qat.ret = ret;
 }
 
@@ -1172,7 +1167,7 @@ int IntelQaRsaPublic(WC_ASYNC_DEV* dev,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLenPtr = outLen;
-    IntelQaOpInit(dev);
+    IntelQaOpInit(dev, IntelQaRsaPublicFree);
 
     /* perform RSA encrypt */
     do {
@@ -1254,8 +1249,7 @@ static void IntelQaRsaModExpCallback(void *pCallbackTag,
     }
     (void)opData;
 
-    /* set cleanup function and return code (to mark complete) */
-    dev->qat.freeFunc = IntelQaRsaModExpFree;
+    /* set return code to mark complete */
     dev->qat.ret = ret;
 }
 
@@ -1303,7 +1297,7 @@ int IntelQaRsaExptMod(WC_ASYNC_DEV* dev,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLenPtr = outLen;
-    IntelQaOpInit(dev);
+    IntelQaOpInit(dev, IntelQaRsaModExpFree);
 
 	/* make modexp call async */
     do {
@@ -1572,8 +1566,7 @@ static void IntelQaSymCipherCallback(void *pCallbackTag, CpaStatus status,
         }
     }
 
-    /* set cleanup function and return code (to mark complete) */
-    dev->qat.freeFunc = IntelQaSymCipherFree;
+    /* set return code to mark complete */
     dev->qat.ret = ret;
 }
 
@@ -1731,7 +1724,7 @@ static int IntelQaSymCipher(WC_ASYNC_DEV* dev, byte* out, const byte* in,
         dev->qat.op.cipher.authTag = NULL;
         dev->qat.op.cipher.authTagSz = 0;
     }
-    IntelQaOpInit(dev);
+    IntelQaOpInit(dev, IntelQaSymCipherFree);
 
     /* perform symmetric AES operation async */
     /* use same buffer list for in-place operation */
@@ -2009,8 +2002,7 @@ static void IntelQaSymHashCallback(void *pCallbackTag, CpaStatus status,
         ret = 0; /* success */
     }
 
-    /* set cleanup function and return code (to mark complete) */
-    dev->qat.freeFunc = IntelQaSymHashFree;
+    /* set return code to mark complete */
     dev->qat.ret = ret;
 }
 
@@ -2296,7 +2288,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLen = inOutSz;
-    IntelQaOpInit(dev);
+    IntelQaOpInit(dev, IntelQaSymHashFree);
 
     /* perform symmetric hash operation async */
     /* use same buffer list for in-place operation */
@@ -2511,8 +2503,7 @@ static void IntelQaEcdhCallback(void *pCallbackTag, CpaStatus status,
     (void)opData;
     (void)pYk;
 
-    /* set cleanup function and return code (to mark complete) */
-    dev->qat.freeFunc = IntelQaEcdhFree;
+    /* set return code to mark complete */
     dev->qat.ret = ret;
 }
 
@@ -2581,7 +2572,7 @@ int IntelQaEcdh(WC_ASYNC_DEV* dev, WC_BIGINT* k, WC_BIGINT* xG,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLenPtr = outlen;
-    IntelQaOpInit(dev);
+    IntelQaOpInit(dev, IntelQaEcdhFree);
 
     /* perform point multiply */
     do {
@@ -2676,8 +2667,7 @@ static void IntelQaEcdsaSignCallback(void *pCallbackTag,
     }
     (void)opData;
 
-    /* set cleanup function and return code (to mark complete) */
-    dev->qat.freeFunc = IntelQaEcdsaSignFree;
+    /* set return code to mark complete */
     dev->qat.ret = ret;
 }
 
@@ -2738,7 +2728,7 @@ int IntelQaEcdsaSign(WC_ASYNC_DEV* dev,
     /* store info needed for output */
     dev->qat.op.ecc_sign.pR = r;
     dev->qat.op.ecc_sign.pS = s;
-    IntelQaOpInit(dev);
+    IntelQaOpInit(dev, IntelQaEcdsaSignFree);
 
     /* Perform ECDSA sign */
     do {
@@ -2812,8 +2802,7 @@ static void IntelQaEcdsaVerifyCallback(void *pCallbackTag,
     }
     (void)opData;
 
-    /* set cleanup function and return code (to mark complete) */
-    dev->qat.freeFunc = IntelQaEcdsaVerifyFree;
+    /* set return code to mark complete */
     dev->qat.ret = ret;
 }
 
@@ -2859,7 +2848,7 @@ int IntelQaEcdsaVerify(WC_ASYNC_DEV* dev, WC_BIGINT* m,
 
     /* store info needed for output */
     dev->qat.op.ecc_verify.stat = stat;
-    IntelQaOpInit(dev);
+    IntelQaOpInit(dev, IntelQaEcdsaVerifyFree);
 
     /* Perform ECDSA verify */
     do {
@@ -2945,8 +2934,7 @@ static void IntelQaDhKeyGenCallback(void *pCallbackTag, CpaStatus status,
     }
     (void)opData;
 
-    /* set cleanup function and return code (to mark complete) */
-    dev->qat.freeFunc = IntelQaDhKeyGenFree;
+    /* set return code to mark complete */
     dev->qat.ret = ret;
 }
 
@@ -2990,7 +2978,7 @@ int IntelQaDhKeyGen(WC_ASYNC_DEV* dev, WC_BIGINT* p, WC_BIGINT* g,
     *pubSz = p->len;
     dev->qat.out = pub;
     dev->qat.outLenPtr = pubSz;
-    IntelQaOpInit(dev);
+    IntelQaOpInit(dev, IntelQaDhKeyGenFree);
 
     /* Perform DhKeyGen */
     do {
@@ -3079,8 +3067,7 @@ static void IntelQaDhAgreeCallback(void *pCallbackTag, CpaStatus status,
     }
     (void)opData;
 
-    /* set cleanup function and return code (to mark complete) */
-    dev->qat.freeFunc = IntelQaDhAgreeFree;
+    /* set return code to mark complete */
     dev->qat.ret = ret;
 }
 
@@ -3128,7 +3115,7 @@ int IntelQaDhAgree(WC_ASYNC_DEV* dev, WC_BIGINT* p,
     /* store info needed for output */
     dev->qat.out = agree;
     dev->qat.outLenPtr = agreeSz;
-    IntelQaOpInit(dev);
+    IntelQaOpInit(dev, IntelQaDhAgreeFree);
 
     /* Perform DhKeyGen */
     do {
@@ -3311,8 +3298,7 @@ static void IntelQaDrbgCallback(void *pCallbackTag, CpaStatus status,
     }
     (void)opData;
 
-    /* set cleanup function and return code (to mark complete) */
-    dev->qat.freeFunc = IntelQaDrbgFree;
+    /* set return code to mark complete */
     dev->qat.ret = ret;
 }
 
@@ -3402,7 +3388,7 @@ int IntelQaDrbg(WC_ASYNC_DEV* dev, byte* rngBuf, word32 rngSz)
 
         /* store info needed for output */
         dev->qat.out = &rngBuf[idx];
-        IntelQaOpInit(dev);
+        IntelQaOpInit(dev, IntelQaDrbgFree);
 
         /* Perform DRBG generation */
         do {
