@@ -71,10 +71,10 @@
 
 
 typedef struct CaviumNitroxDev {
-    CspHandle   devId;                      /* nitrox device id */
-    ContextType type;                       /* Typically CONTEXT_SSL, but also ECC types */
-    Uint64      contextHandle;              /* nitrox context memory handle */
-    CavReqId    reqId;                      /* Current requestId */
+    CspHandle      devId;                      /* nitrox device id */
+    context_type_t type;                       /* Typically CONTEXT_SSL, but also ECC types */
+    Uint64         contextHandle;              /* nitrox context memory handle */
+    CavReqId       reqId;                      /* Current requestId */
 } CaviumNitroxDev;
 
 struct WOLF_EVENT;
@@ -87,7 +87,7 @@ WOLFSSL_LOCAL int NitroxTranslateResponseCode(int ret);
 WOLFSSL_LOCAL CspHandle NitroxGetDeviceHandle(void);
 WOLFSSL_LOCAL CspHandle NitroxOpenDevice(int dma_mode, int dev_id);
 WOLFSSL_LOCAL int NitroxAllocContext(struct WC_ASYNC_DEV* dev, CspHandle devId,
-    ContextType type);
+    context_type_t type);
 WOLFSSL_LOCAL void NitroxFreeContext(struct WC_ASYNC_DEV* dev);
 WOLFSSL_LOCAL void NitroxCloseDevice(CspHandle devId);
 
