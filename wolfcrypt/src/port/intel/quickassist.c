@@ -2040,7 +2040,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
 #endif
 
     /* check args */
-    if (dev == NULL || (out == NULL && in == NULL) || inOutSz == 0 ||
+    if (dev == NULL || (out == NULL && in == NULL) ||
                                     hashAlgorithm == CPA_CY_SYM_HASH_NONE) {
         return BAD_FUNC_ARG;
     }
