@@ -57,6 +57,7 @@
 
 /* use thread local for QAE variables (removing mutex requirement) */
 #ifdef USE_QAE_THREAD_LS
+    #include <pthread.h> /* for threadId tracking */
     #define QAE_THREAD_LS THREAD_LS_T
 #else
     #define QAE_THREAD_LS
@@ -164,6 +165,9 @@ typedef struct qaeMemHeader {
 #endif
     uint64_t magic;
     void* heap;
+#ifdef USE_QAE_THREAD_LS
+    pthread_t threadId;
+#endif
     size_t size;
     int count;
     word16 type;
@@ -388,6 +392,9 @@ static void* _qaeMemAlloc(size_t size, void* heap, int type
         header->type = type;
         header->count = 1;
         header->numa_page_offset = page_offset;
+    #ifdef USE_QAE_THREAD_LS
+        header->threadId = pthread_self();
+    #endif
 
     #ifdef WOLFSSL_TRACK_MEMORY
         if (pthread_mutex_lock(&g_memStatLock) == 0) {
@@ -526,10 +533,23 @@ void* IntelQaRealloc(void *ptr, size_t size, void* heap, int type
             }
             /* if matching NUMA type and size fits, use existing */
             else if (newIsNuma == ptrIsNuma && header->size >= size) {
-                /* use existing pointer and increment counter */
-                header->count++;
-                newPtr = origPtr;
-                allocNew = 0;
+
+            #ifdef USE_QAE_THREAD_LS
+                if (header->threadId != pthread_self()) {
+                    allocNew = 1;
+                #if 0
+                    printf("Realloc %p from different thread! orig %lx this %lx\n",
+                        origPtr, header->threadId, pthread_self());
+                #endif
+                }
+                else
+            #endif
+                {
+                    /* use existing pointer and increment counter */
+                    header->count++;
+                    newPtr = origPtr;
+                    allocNew = 0;
+                }
             }
 
             copySize = header->size;
