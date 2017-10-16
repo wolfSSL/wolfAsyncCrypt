@@ -534,7 +534,7 @@ static int wolfAsync_CheckMultiReqBuf(WC_ASYNC_DEV* asyncDev,
 
                         /* If not pending then mark as done */
                         if (event->ret != WC_PENDING_E) {
-                            event->state == WOLF_EVENT_STATE_DONE;
+                            event->state = WOLF_EVENT_STATE_DONE;
                             event->reqId = 0;
                         }
                         break;

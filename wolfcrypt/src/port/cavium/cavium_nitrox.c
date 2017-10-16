@@ -127,7 +127,7 @@ CspHandle NitroxOpenDevice(int dma_mode, int dev_id)
 
 
 int NitroxAllocContext(WC_ASYNC_DEV* dev, CspHandle devId,
-    ContextType type)
+    context_type_t type)
 {
     int ret;
 
