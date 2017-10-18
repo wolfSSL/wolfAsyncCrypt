@@ -114,6 +114,8 @@ typedef struct IntelQaSymCtx {
 
 typedef void (*IntelQaFreeFunc)(struct WC_ASYNC_DEV*);
 
+#define MAX_QAT_HASH_BUFFERS 2
+
 /* QuickAssist device */
 typedef struct IntelQaDev {
 	CpaInstanceHandle handle;
@@ -187,6 +189,10 @@ typedef struct IntelQaDev {
             byte* tmpIn; /* tmp buffer to hold anything pending less than block size */
             word32 tmpInSz;
             word32 blockSize;
+
+            int bufferCount;
+            byte* buffers[MAX_QAT_HASH_BUFFERS];
+            word32 buffersSz[MAX_QAT_HASH_BUFFERS];
         } hash;
     #endif
     #ifndef NO_DH
