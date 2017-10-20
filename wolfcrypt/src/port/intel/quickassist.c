@@ -1857,38 +1857,38 @@ static int IntelQaSymHashGetInfo(CpaCySymHashAlgorithm hashAlgorithm,
     switch(hashAlgorithm) {
         case CPA_CY_SYM_HASH_MD5:
         #ifndef NO_MD5
-            blockSize = MD5_BLOCK_SIZE;
-            digestSize = MD5_DIGEST_SIZE;
+            blockSize = WC_MD5_BLOCK_SIZE;
+            digestSize = WC_MD5_DIGEST_SIZE;
         #endif
             break;
         case CPA_CY_SYM_HASH_SHA1:
         #ifndef NO_SHA
-            blockSize = SHA_BLOCK_SIZE;
-            digestSize = SHA_DIGEST_SIZE;
+            blockSize = WC_SHA_BLOCK_SIZE;
+            digestSize = WC_SHA_DIGEST_SIZE;
         #endif
             break;
         case CPA_CY_SYM_HASH_SHA224:
         #ifdef WOLFSSL_SHA224
-            blockSize = SHA224_BLOCK_SIZE;
-            digestSize = SHA224_DIGEST_SIZE;
+            blockSize = WC_SHA224_BLOCK_SIZE;
+            digestSize = WC_SHA224_DIGEST_SIZE;
         #endif
             break;
         case CPA_CY_SYM_HASH_SHA256:
         #ifndef NO_SHA256
-            blockSize = SHA256_BLOCK_SIZE;
-            digestSize = SHA256_DIGEST_SIZE;
+            blockSize = WC_SHA256_BLOCK_SIZE;
+            digestSize = WC_SHA256_DIGEST_SIZE;
         #endif
             break;
         case CPA_CY_SYM_HASH_SHA384:
         #if defined(WOLFSSL_SHA512) && defined(WOLFSSL_SHA384)
-            blockSize = SHA384_BLOCK_SIZE;
-            digestSize = SHA384_DIGEST_SIZE;
+            blockSize = WC_SHA384_BLOCK_SIZE;
+            digestSize = WC_SHA384_DIGEST_SIZE;
         #endif
             break;
         case CPA_CY_SYM_HASH_SHA512:
         #ifdef WOLFSSL_SHA512
-            blockSize = SHA512_BLOCK_SIZE;
-            digestSize = SHA512_DIGEST_SIZE;
+            blockSize = WC_SHA512_BLOCK_SIZE;
+            digestSize = WC_SHA512_DIGEST_SIZE;
         #endif
             break;
 
@@ -2375,32 +2375,32 @@ int IntelQaSymMd5(WC_ASYNC_DEV* dev, byte* out, const byte* in, word32 sz)
 
         switch (macType) {
         #ifndef NO_MD5
-            case MD5:
+            case WC_MD5:
                 hashAlgorithm = CPA_CY_SYM_HASH_MD5;
                 break;
         #endif
         #ifndef NO_SHA
-            case SHA:
+            case WC_SHA:
                 hashAlgorithm = CPA_CY_SYM_HASH_SHA1;
                 break;
         #endif
         #ifdef WOLFSSL_SHA224
-            case SHA224:
+            case WC_SHA224:
                 hashAlgorithm = CPA_CY_SYM_HASH_SHA224;
                 break;
         #endif
         #ifndef NO_SHA256
-            case SHA256:
+            case WC_SHA256:
                 hashAlgorithm = CPA_CY_SYM_HASH_SHA256;
                 break;
         #endif
         #ifdef WOLFSSL_SHA512
         #ifdef WOLFSSL_SHA384
-            case SHA384:
+            case WC_SHA384:
                 hashAlgorithm = CPA_CY_SYM_HASH_SHA384;
                 break;
         #endif
-            case SHA512:
+            case WC_SHA512:
                 hashAlgorithm = CPA_CY_SYM_HASH_SHA512;
                 break;
         #endif

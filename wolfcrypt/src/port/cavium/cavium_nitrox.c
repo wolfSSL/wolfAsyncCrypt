@@ -685,18 +685,18 @@ static int NitroxHmacGetType(int type)
     /* Determine Cavium HashType */
     switch(type) {
     #ifndef NO_MD5
-        case MD5:
+        case WC_MD5:
             cav_type = MD5_TYPE;
             break;
     #endif
     #ifndef NO_SHA
-        case SHA:
+        case WC_SHA:
             cav_type = SHA1_TYPE;
             break;
     #endif
     #ifndef NO_SHA256
     #ifdef WOLFSSL_SHA224
-        case SHA224:
+        case WC_SHA224:
         #ifdef HAVE_CAVIUM_V
             cav_type = SHA2_SHA224;
         #else
@@ -704,7 +704,7 @@ static int NitroxHmacGetType(int type)
         #endif
             break;
     #endif /* WOLFSSL_SHA224 */
-        case SHA256:
+        case WC_SHA256:
         #ifdef HAVE_CAVIUM_V
             cav_type = SHA2_SHA256;
         #else
@@ -714,12 +714,12 @@ static int NitroxHmacGetType(int type)
     #endif
     #ifdef HAVE_CAVIUM_V
         #ifdef WOLFSSL_SHA512
-            case SHA512:
+            case WC_SHA512:
                 cav_type = SHA2_SHA512;
                 break;
         #endif
         #ifdef WOLFSSL_SHA384
-            case SHA384:
+            case WC_SHA384:
                 cav_type = SHA2_SHA384;
                 break;
         #endif
