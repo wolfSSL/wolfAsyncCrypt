@@ -2008,7 +2008,6 @@ static void IntelQaSymHashCallback(void *pCallbackTag, CpaStatus status,
 
 /* For hash update call with out == NULL */
 /* For hash final call with out != NULL */
-#define MAX_QAT_HASH_BUFFERS 2
 static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     word32 inOutSz, CpaCySymHashMode hashMode,
     CpaCySymHashAlgorithm hashAlgorithm,
@@ -2030,9 +2029,10 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     CpaCySymPacketType packetType;
     IntelQaSymCtx* ctx;
     CpaCySymSessionSetupData setup;
-    int bufferCount = 0;
-    byte* buffers[MAX_QAT_HASH_BUFFERS] = {NULL};
-    word32 buffersSz[MAX_QAT_HASH_BUFFERS] = {0};
+
+    int* bufferCount;
+    byte** buffers;
+    word32* buffersSz;
 
 #ifdef QAT_DEBUG
     printf("IntelQaSymHash: dev %p, out %p, in %p, inOutSz %d, mode %d, algo %d\n",
@@ -2056,6 +2056,10 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     }
     dev->qat.op.hash.blockSize = blockSize;
     ctx = &dev->qat.op.hash.ctx;
+
+    bufferCount = &dev->qat.op.hash.bufferCount;
+    buffers = dev->qat.op.hash.buffers;
+    buffersSz = dev->qat.op.hash.buffersSz;
 
     /* handle input processing */
     if (in) {
@@ -2086,9 +2090,9 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
                     /* fill tmp buffer and add */
                     XMEMCPY(&dev->qat.op.hash.tmpIn[dev->qat.op.hash.tmpInSz], in, remainSz);
                     dev->qat.op.hash.tmpInSz += remainSz;
-                    buffers[bufferCount] = dev->qat.op.hash.tmpIn;
-                    buffersSz[bufferCount] = dev->qat.op.hash.tmpInSz;
-                    bufferCount++;
+                    buffers[*bufferCount] = dev->qat.op.hash.tmpIn;
+                    buffersSz[*bufferCount] = dev->qat.op.hash.tmpInSz;
+                    (*bufferCount)++;
                     inOutSz -= remainSz;
                     in += remainSz;
                     dev->qat.op.hash.tmpIn = NULL;
@@ -2099,15 +2103,15 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
                         word32 unalignedSz = (inOutSz % blockSize);
                         word32 inSz = inOutSz - unalignedSz;
 
-                        buffersSz[bufferCount] = inSz;
-                        buffers[bufferCount] = (byte*)XMALLOC(inSz,
+                        buffersSz[*bufferCount] = inSz;
+                        buffers[*bufferCount] = (byte*)XMALLOC(inSz,
                                     dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
-                        if (buffers[bufferCount] == NULL) {
+                        if (buffers[*bufferCount] == NULL) {
                             ret = MEMORY_E; goto exit;
                         }
-                        XMEMCPY(buffers[bufferCount], (byte*)in, inSz);
+                        XMEMCPY(buffers[*bufferCount], (byte*)in, inSz);
 
-                        bufferCount++;
+                        (*bufferCount)++;
                         inOutSz -= inSz;
                         in += inSz;
                     }
@@ -2136,13 +2140,13 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
                     word32 unalignedSz = (inOutSz % blockSize);
                     word32 inSz = inOutSz - unalignedSz;
 
-                    buffersSz[bufferCount] = inSz;
-                    buffers[bufferCount] = (byte*)XREALLOC((byte*)in,
+                    buffersSz[*bufferCount] = inSz;
+                    buffers[*bufferCount] = (byte*)XREALLOC((byte*)in,
                         inSz, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
-                    if (buffers[bufferCount] == NULL) {
+                    if (buffers[*bufferCount] == NULL) {
                         ret = MEMORY_E; goto exit;
                     }
-                    bufferCount++;
+                    (*bufferCount)++;
 
                     /* store remainder */
                     dev->qat.op.hash.tmpInSz = unalignedSz;
@@ -2153,20 +2157,29 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
         }
         else {
             /* use input directly */
-            buffersSz[bufferCount] = inOutSz;
-            buffers[bufferCount] = (byte*)XREALLOC((byte*)in,
-                buffersSz[bufferCount], dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
-            if (buffers[bufferCount] == NULL) {
+            buffersSz[*bufferCount] = inOutSz;
+            buffers[*bufferCount] = (byte*)XREALLOC((byte*)in,
+                buffersSz[*bufferCount], dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+            if (buffers[*bufferCount] == NULL) {
                 ret = MEMORY_E; goto exit;
             }
-            bufferCount++;
+            (*bufferCount)++;
         }
     }
 
-    /* if not final and no in buffers then exit with success */
-    if (out == NULL && bufferCount == 0) {
-        ret = 0; /* return success */
-        goto exit;
+    /* determine if early exit is okay */
+    if (out == NULL) {
+        /* if not final and no in buffers then exit with success */
+        if (*bufferCount == 0) {
+            ret = 0; /* return success */
+            goto exit;
+        }
+
+        /* for auth must pass in buffer, so leave one in buffer cache */
+        else if (hashMode == CPA_CY_SYM_HASH_MODE_AUTH && *bufferCount <= 1) {
+            ret = 0; /* return success */
+            goto exit;
+        }
     }
 
     /* determine packet type and add any remainder to input processing */
@@ -2175,9 +2188,9 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
         /* if remainder then add it */
         if (dev->qat.op.hash.tmpIn && dev->qat.op.hash.tmpInSz > 0) {
             /* add buffer and use final hash type */
-            buffers[bufferCount] = dev->qat.op.hash.tmpIn;
-            buffersSz[bufferCount] = dev->qat.op.hash.tmpInSz;
-            bufferCount++;
+            buffers[*bufferCount] = dev->qat.op.hash.tmpIn;
+            buffersSz[*bufferCount] = dev->qat.op.hash.tmpInSz;
+            (*bufferCount)++;
             dev->qat.op.hash.tmpIn = NULL;
             dev->qat.op.hash.tmpInSz = 0;
         }
@@ -2192,14 +2205,14 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     }
 
     /* get meta size */
-    status = cpaCyBufferListGetMetaSize(dev->qat.handle, bufferCount, &metaSize);
+    status = cpaCyBufferListGetMetaSize(dev->qat.handle, *bufferCount, &metaSize);
     if (status != CPA_STATUS_SUCCESS && metaSize <= 0) {
         ret = BUFFER_E; goto exit;
     }
 
     /* allocate buffer list */
     bufferListSize = sizeof(CpaBufferList) +
-        (bufferCount * sizeof(CpaFlatBuffer)) + metaSize;
+        (*bufferCount * sizeof(CpaFlatBuffer)) + metaSize;
     srcList = XMALLOC(bufferListSize, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
     if (srcList == NULL) {
         ret = MEMORY_E; goto exit;
@@ -2209,13 +2222,20 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     srcList->pBuffers = (CpaFlatBuffer*)(
         (byte*)srcList + sizeof(CpaBufferList));
     srcList->pPrivateMetaData = (byte*)srcList + sizeof(CpaBufferList) +
-        (bufferCount * sizeof(CpaFlatBuffer));
-    for (i = 0; i < bufferCount; i++) {
+        (*bufferCount * sizeof(CpaFlatBuffer));
+    for (i = 0; i < *bufferCount; i++) {
         srcList->pBuffers[i].dataLenInBytes = buffersSz[i];
         srcList->pBuffers[i].pData = buffers[i];
         totalMsgSz += buffersSz[i];
     }
-    srcList->numBuffers = bufferCount;
+    srcList->numBuffers = *bufferCount;
+
+    /* clear buffer cache */
+    dev->qat.op.hash.bufferCount = 0;
+    for (i=0; i<MAX_QAT_HASH_BUFFERS; i++) {
+        dev->qat.op.hash.buffers[i] = NULL;
+        dev->qat.op.hash.buffersSz[i] = 0;
+    }
 
     /* build output */
     if (out) {
