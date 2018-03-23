@@ -731,7 +731,7 @@ int wolfAsync_EventInit(WOLF_EVENT* event, WOLF_EVENT_TYPE type, void* context,
     event->dev.async = asyncDev;
     event->flags = flags;
 #ifdef HAVE_CAVIUM
-    event->reqId = asyncDev->nitrox.reqId;
+    event->reqId = asyncDev ? asyncDev->nitrox.reqId : 0;
 #endif
 
     return ret;
