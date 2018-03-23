@@ -489,6 +489,36 @@ int NitroxEccIsCurveSupported(ecc_key* key)
     return NitroxEccGetCid(key, &cid) == 0 ? 1 : 0;
 }
 
+int NitroxEccGetSize(ecc_key* key)
+{
+    return ROUNDUP8(key->dp->size);
+}
+
+int NitroxEccPad(WC_BIGINT* bi, word32 padTo)
+{
+    if (bi->len < padTo) {
+        int x = padTo - bi->len;
+        XMEMCPY(bi->buf + x, bi->buf, bi->len);
+        XMEMSET(bi->buf, 0, x);
+        bi->len = padTo;
+    }
+    return 0;
+}
+
+int NitroxEccRsSplit(ecc_key* key, WC_BIGINT* r, WC_BIGINT* s)
+{
+    if (NitroxEccIsCurveSupported(key)) {
+        int rSz = NitroxEccGetSize(key);
+
+        /* split r and s */
+        XMEMCPY(s->buf, r->buf + rSz, key->dp->size);
+        XMEMSET(r->buf + key->dp->size, 0, key->dp->size);
+        r->len = key->dp->size;
+        s->len = key->dp->size;
+    }
+    return 0;
+}
+
 #ifdef HAVE_ECC_DHE
 int NitroxEcdh(ecc_key* key,
     WC_BIGINT* k, WC_BIGINT* xG, WC_BIGINT* yG,
@@ -531,25 +561,6 @@ int NitroxEcdh(ecc_key* key,
 }
 #endif /* HAVE_ECC_DHE */
 
-int NitroxEccGetSize(ecc_key* key)
-{
-    return ROUNDUP8(key->dp->size);
-}
-
-int NitroxEccRsSplit(ecc_key* key, WC_BIGINT* r, WC_BIGINT* s)
-{
-    if (NitroxEccIsCurveSupported(key)) {
-        int rSz = NitroxEccGetSize(key);
-
-        /* split r and s */
-        XMEMCPY(s->buf, r->buf + rSz, key->dp->size);
-        XMEMSET(r->buf + key->dp->size, 0, key->dp->size);
-        r->len = key->dp->size;
-        s->len = key->dp->size;
-    }
-    return 0;
-}
-
 #ifdef HAVE_ECC_SIGN
 int NitroxEcdsaSign(ecc_key* key,
     WC_BIGINT* m, WC_BIGINT* d, WC_BIGINT* k,
@@ -584,6 +595,7 @@ int NitroxEcdsaSign(ecc_key* key,
     return ret;
 }
 #endif /* HAVE_ECC_SIGN */
+
 #ifdef HAVE_ECC_VERIFY
 int NitroxEcdsaVerify(ecc_key* key,
         WC_BIGINT* m, WC_BIGINT* xp, WC_BIGINT* yp,
@@ -592,6 +604,7 @@ int NitroxEcdsaVerify(ecc_key* key,
 {
     int ret;
     CurveId cid;
+    int curveSz = key->dp->size;
 
     ret = NitroxEccGetCid(key, &cid);
     if (ret < 0)
@@ -599,6 +612,10 @@ int NitroxEcdsaVerify(ecc_key* key,
 
     /* init return codes */
     NitroxDevClear(&key->asyncDev);
+
+    /* adjust r and s for leading zero pad */
+    NitroxEccPad(r, curveSz);
+    NitroxEccPad(s, curveSz);
 
     ret = CspECDSAVerify(key->asyncDev.nitrox.devId, CAVIUM_REQ_MODE,
         CAVIUM_SSL_GRP, CAVIUM_DPORT, cid, r->buf, s->buf, m->len, m->buf,
@@ -840,12 +857,12 @@ int NitroxArc4Process(Arc4* arc4, byte* out, const byte* in, word32 length)
         NitroxDevClear(&arc4->asyncDev);
 
     while (length > 0) {
-        word16 slen = (word16)length;
-        if (slen > (word16)NITROX_MAX_BUF_LEN)
-            slen = (word16)NITROX_MAX_BUF_LEN;
+        word32 slen = length;
+        if (slen > NITROX_MAX_BUF_LEN)
+            slen = NITROX_MAX_BUF_LEN;
 
         ret = CspEncryptRc4(blockMode,
-            arc4->asyncDev.nitrox.contextHandle, CAVIUM_UPDATE, slen,
+            arc4->asyncDev.nitrox.contextHandle, CAVIUM_UPDATE, (word16)slen,
             (byte*)in + offset, out + offset,
             &arc4->asyncDev.nitrox.reqId, arc4->devId);
         ret = NitroxTranslateResponseCode(ret);
@@ -873,19 +890,19 @@ int NitroxDes3CbcEncrypt(Des3* des3, byte* out, const byte* in, word32 length)
         NitroxDevClear(&des3->asyncDev);
 
     while (length > 0) {
-        word16 slen = (word16)length;
-        if (slen > (word16)NITROX_MAX_BUF_LEN)
-            slen = (word16)NITROX_MAX_BUF_LEN;
+        word32 slen = length;
+        if (slen > NITROX_MAX_BUF_LEN)
+            slen = NITROX_MAX_BUF_LEN;
 
     #ifdef HAVE_CAVIUM_V
         ret = CspEncrypt3Des(des3->asyncDev.nitrox.devId, blockMode,
             DMA_DIRECT_DIRECT, CAVIUM_SSL_GRP, CAVIUM_DPORT,
             des3->asyncDev.nitrox.contextHandle, FROM_DPTR, FROM_CTX, DES3_CBC,
-            (byte*)des3->key_raw, (byte*)des3->iv_raw, slen, (byte*)in + offset,
+            (byte*)des3->key_raw, (byte*)des3->iv_raw, (word16)slen, (byte*)in + offset,
             out + offset, &des3->asyncDev.nitrox.reqId);
     #else
         ret = CspEncrypt3Des(blockMode,
-            des3->asyncDev.nitrox.contextHandle, CAVIUM_NO_UPDATE, slen,
+            des3->asyncDev.nitrox.contextHandle, CAVIUM_NO_UPDATE, (word16)slen,
             (byte*)in + offset, out + offset, (byte*)des3->iv_raw,
             (byte*)des3->key_raw, &des3->asyncDev.nitrox.reqId,
             des3->asyncDev.nitrox.devId);
@@ -914,9 +931,9 @@ int NitroxDes3CbcDecrypt(Des3* des3, byte* out, const byte* in, word32 length)
         NitroxDevClear(&des3->asyncDev);
 
     while (length > 0) {
-        word16 slen = (word16)length;
-        if (slen > (word16)NITROX_MAX_BUF_LEN)
-            slen = (word16)NITROX_MAX_BUF_LEN;
+        word32 slen = length;
+        if (slen > NITROX_MAX_BUF_LEN)
+            slen = NITROX_MAX_BUF_LEN;
 
         XMEMCPY(des3->tmp, in + offset + slen - DES_BLOCK_SIZE, DES_BLOCK_SIZE);
 
@@ -924,11 +941,11 @@ int NitroxDes3CbcDecrypt(Des3* des3, byte* out, const byte* in, word32 length)
         ret = CspDecrypt3Des(des3->asyncDev.nitrox.devId, blockMode,
             DMA_DIRECT_DIRECT, CAVIUM_SSL_GRP, CAVIUM_DPORT,
             des3->asyncDev.nitrox.contextHandle, FROM_DPTR, FROM_CTX, DES3_CBC,
-            (byte*)des3->key_raw, (byte*)des3->iv_raw, slen, (byte*)in + offset,
+            (byte*)des3->key_raw, (byte*)des3->iv_raw, (word16)slen, (byte*)in + offset,
             out + offset, &des3->asyncDev.nitrox.reqId);
     #else
         ret = CspDecrypt3Des(blockMode,
-            des3->asyncDev.nitrox.contextHandle, CAVIUM_NO_UPDATE, slen,
+            des3->asyncDev.nitrox.contextHandle, CAVIUM_NO_UPDATE, (word16)slen,
             (byte*)in + offset, out + offset, (byte*)des3->iv_raw,
             (byte*)des3->key_raw, &des3->asyncDev.nitrox.reqId,
             des3->asyncDev.nitrox.devId);
@@ -1127,16 +1144,16 @@ int NitroxRngGenerateBlock(WC_RNG* rng, byte* output, word32 sz)
         NitroxDevClear(&rng->asyncDev);
 
     while (sz > 0) {
-        word16 slen = (word16)sz;
-        if (slen > (word16)NITROX_MAX_BUF_LEN)
-            slen = (word16)NITROX_MAX_BUF_LEN;
+        word32 slen = sz;
+        if (slen > NITROX_MAX_BUF_LEN)
+            slen = NITROX_MAX_BUF_LEN;
 
     #ifdef HAVE_CAVIUM_V
         ret = CspTrueRandom(rng->asyncDev.nitrox.devId, blockMode,
-            DMA_DIRECT_DIRECT, CAVIUM_SSL_GRP, CAVIUM_DPORT, slen,
+            DMA_DIRECT_DIRECT, CAVIUM_SSL_GRP, CAVIUM_DPORT, (word16)slen,
             output + offset, &requestId);
     #else
-        ret = CspRandom(blockMode, slen, output + offset, &requestId,
+        ret = CspRandom(blockMode, (word16)slen, output + offset, &requestId,
             rng->asyncDev.nitrox.devId);
     #endif
         ret = NitroxTranslateResponseCode(ret);

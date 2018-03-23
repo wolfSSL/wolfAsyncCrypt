@@ -126,6 +126,7 @@ WOLFSSL_LOCAL int NitroxCheckRequests(struct WC_ASYNC_DEV* dev,
     WOLFSSL_LOCAL int NitroxEccRsSplit(struct ecc_key* key,
         struct WC_BIGINT* r, struct WC_BIGINT* s);
     WOLFSSL_LOCAL int NitroxEccIsCurveSupported(struct ecc_key* key);
+    WOLFSSL_LOCAL int NitroxEccPad(struct WC_BIGINT* bi, word32 padTo);
     #ifdef HAVE_ECC_DHE
         WOLFSSL_LOCAL int NitroxEcdh(struct ecc_key* key,
             struct WC_BIGINT* k, struct WC_BIGINT* xG, struct WC_BIGINT* yG,
