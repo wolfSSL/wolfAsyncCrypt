@@ -550,8 +550,6 @@ int NitroxEcdh(ecc_key* key,
         ret, key->asyncDev.nitrox.reqId, out, *outlen);
 #endif
 
-    *outlen = q->len;
-
     ret = NitroxTranslateResponseCode(ret);
     if (ret != 0) {
         return ret;
