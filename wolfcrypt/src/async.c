@@ -496,6 +496,9 @@ int wolfAsync_EventPoll(WOLF_EVENT* event, WOLF_EVENT_FLAG flags)
         /* If not pending then mark as done */
         if (event->ret != WC_PENDING_E) {
             event->state = WOLF_EVENT_STATE_DONE;
+        #ifdef HAVE_CAVIUM
+            event->reqId = 0;
+        #endif
         }
     }
 
@@ -615,6 +618,7 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
 
             #if defined(HAVE_CAVIUM)
                     /* Add entry to multi-request buffer */
+                    event->reqId = asyncDev->nitrox.reqId;
                     if (event->reqId > 0) {
                         multi_req.req[req_count].request_id = event->reqId;
                         req_count++;

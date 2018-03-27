@@ -82,12 +82,62 @@ Include the libnitrox static library:
 `LDFLAGS+= ../CNN55XX-SDK/lib/libnitrox.a`
 
 
+### Issues
+
+a. If building with debug `-g` and using an older binutils LD version 2.23 or less you may see a linker crash. Example of error: `BFD (GNU Binutils) 2.23.2 internal error, aborting at merge.c line 873 in _bfd_merged_section_offset`. Resolution is to use this in the CFLAGS `-g -fno-merge-debug-strings -fdebug-types-section`.
+
+
 ## Usage
 
-Note: Must run applications with sudo to access device.
+Note: Must run applications with `sudo` to access device.
 
 ```
 sudo ./wolfcrypt/benchmark/benchmark
 sudo ./wolfcrypt/test/testwolfcrypt
 ```
 
+
+## TLS Code Tempalte
+
+```
+/* GLOBAL DEVICE IDENTIFIER */
+#ifdef WOLFSSL_ASYNC_CRYPT
+	static int devId = INVALID_DEVID;
+#endif
+
+
+/* DONE AT INIT */
+#ifdef WOLFSSL_ASYNC_CRYPT
+    if (wolfAsync_DevOpen(&devId) != 0) {
+        fprintf(stderr, "Async device open failed\nRunning without async\n");
+    }
+
+    wolfSSL_CTX_UseAsync(ctx, devId);
+#endif
+
+
+/* DONE IN YOUR WORKER LOOP IN WC_PENDING_E CASES AGAINST YOUR WOLFSSL_CTX */
+#ifdef WOLFSSL_ASYNC_CRYPT
+	int ret;
+    WOLF_EVENT* wolfEvents[MAX_WOLF_EVENTS];
+    int eventCount, i;
+
+    /* get list of events that are done (not pending) */
+	ret = wolfSSL_CTX_AsyncPoll(ctx, wolfEvents, MAX_WOLF_EVENTS, WOLF_POLL_FLAG_CHECK_HW, &eventCount);
+	if (ret != 0)
+		goto error;
+
+	for (i = 0; i < eventCount; i++) {
+		WOLFSSL* ssl = (WOLFSSL*)wolfEvents[i]->context;
+		if (ssl) {
+			/* your SSL object is ready to be called again */
+		}
+	}
+#endif
+
+
+/* DONE AT CLEANUP */
+#ifdef WOLFSSL_ASYNC_CRYPT
+    wolfAsync_DevClose(&devId);
+#endif
+```
