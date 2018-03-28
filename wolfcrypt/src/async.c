@@ -490,6 +490,8 @@ static int wolfAsync_NitroxCheckReq(WC_ASYNC_DEV* asyncDev, WOLF_EVENT* event)
             ret,
             event->reqId,
             event->pendCount);
+#else
+    (void)ret;
 #endif
 
     /* if not pending then clear requestId */
