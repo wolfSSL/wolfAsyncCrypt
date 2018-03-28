@@ -77,7 +77,10 @@ int NitroxTranslateResponseCode(int ret)
             ret = SIG_VERIFY_E;
             break;
         case ERR_PKCS_DECRYPT_INCORRECT:
-            ret = RSA_PAD_E;
+            ret = ASN_SIG_CONFIRM_E; /* RSA_PAD_E */
+            break;
+        case ERR_GC_ICV_MISCOMPARE:
+            ret = AES_GCM_AUTH_E;
             break;
         case 0:
         case 1:
@@ -96,6 +99,7 @@ static INLINE void NitroxDevClear(WC_ASYNC_DEV* dev)
     /* this is because operation may complete before added to event list */
     dev->event.ret = WC_PENDING_E;
     dev->event.state = WOLF_EVENT_STATE_PENDING;
+    dev->event.reqId = 0;
 }
 
 CspHandle NitroxGetDeviceHandle(void)
@@ -203,19 +207,11 @@ void NitroxCloseDevice(CspHandle devId)
 
 int NitroxCheckRequest(WC_ASYNC_DEV* dev, WOLF_EVENT* event)
 {
-    int cav_ret, ret;
-
-    cav_ret = CspCheckForCompletion(dev->nitrox.devId, event->reqId);
-    ret = NitroxTranslateResponseCode(cav_ret);
-
-#ifdef WOLFSSL_NITROX_DEBUG
-    if (ret == WC_PENDING_E)
-        event->pendCount++;
-    else
-        printf("NitroxCheckRequest: ret %x, req %lx, count %d\n",
-            ret, event->reqId, event->pendCount);
-#endif
-
+    int ret = BAD_FUNC_ARG;
+    if (dev && event) {
+        ret = CspCheckForCompletion(dev->nitrox.devId, event->reqId);
+        event->ret = NitroxTranslateResponseCode(ret);
+    }
     return ret;
 }
 
@@ -223,6 +219,9 @@ int NitroxCheckRequests(WC_ASYNC_DEV* dev,
     CspMultiRequestStatusBuffer* req_stat_buf)
 {
     int ret;
+
+    if (dev == NULL || req_stat_buf == NULL)
+        return BAD_FUNC_ARG;
 
 #ifdef HAVE_CAVIUM_V
     ret = CspGetAllResults(req_stat_buf, dev->nitrox.devId);
@@ -280,6 +279,8 @@ int NitroxRsaExptMod(const byte* in, word32 inLen,
         return ret;
     }
 
+    *outLen = modLen; /* always use modLen */
+
     return ret;
 }
 
@@ -321,11 +322,6 @@ int NitroxRsaPublicEncrypt(const byte* in, word32 inLen, byte* out,
 }
 
 
-static INLINE void ato16(const byte* c, word16* u16)
-{
-    *u16 = (c[0] << 8) | (c[1]);
-}
-
 int NitroxRsaPrivateDecrypt(const byte* in, word32 inLen, byte* out,
                             word32* outLen, RsaKey* key)
 {
@@ -361,7 +357,7 @@ int NitroxRsaPrivateDecrypt(const byte* in, word32 inLen, byte* out,
         return ret;
     }
 
-    ato16((const byte*)outLen, (word16*)outLen);
+    *outLen = ntohs(*outLen);
 
     return *outLen;
 }
@@ -1132,7 +1128,7 @@ int NitroxHmacFinal(Hmac* hmac, byte* hash, word16 hashLen)
 
 int NitroxRngGenerateBlock(WC_RNG* rng, byte* output, word32 sz)
 {
-    int ret;
+    int ret = 0;
     wolfssl_word offset = 0;
     CavReqId     requestId;
     const int blockMode = CAVIUM_BLOCKING;
@@ -1156,7 +1152,7 @@ int NitroxRngGenerateBlock(WC_RNG* rng, byte* output, word32 sz)
     #endif
         ret = NitroxTranslateResponseCode(ret);
         if (ret != 0) {
-            return ret;
+            break;
         }
 
         sz     -= slen;
