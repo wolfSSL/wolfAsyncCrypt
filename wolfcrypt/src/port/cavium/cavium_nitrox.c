@@ -663,7 +663,7 @@ static int NitroxAesEncrypt(Aes* aes, int aes_algo,
     byte* out, const byte* in, word32 length,
     word32 aad_len, const byte* aad, byte* tag)
 {
-    int ret;
+    int ret = 0, cav_ret = 0;
     int offset = 0;
     AesType aes_type;
     const int blockMode = CAVIUM_BLOCKING;
@@ -683,28 +683,30 @@ static int NitroxAesEncrypt(Aes* aes, int aes_algo,
             slen = NITROX_MAX_BUF_LEN;
 
     #ifdef HAVE_CAVIUM_V
-        ret = CspEncryptAes(aes->asyncDev.nitrox.devId, blockMode,
+        cav_ret = CspEncryptAes(aes->asyncDev.nitrox.devId, blockMode,
             DMA_DIRECT_DIRECT, CAVIUM_SSL_GRP, CAVIUM_DPORT,
             aes->asyncDev.nitrox.contextHandle, FROM_DPTR, FROM_CTX, aes_algo,
             aes_type, (byte*)key, (byte*)iv, aad_len, (byte*)aad, (byte*)tag,
             (word16)slen, (byte*)in + offset, out + offset,
             &aes->asyncDev.nitrox.reqId);
     #else
-        if (aes_type != AES_CBC)
-            return NOT_COMPILED_IN;
+        if (aes_type != AES_CBC) {
+            ret = NOT_COMPILED_IN;
+            break;
+        }
 
         (void)aad_len;
         (void)aad;
         (void)tag;
 
-        ret = CspEncryptAes(blockMode, aes->asyncDev.nitrox.contextHandle,
+        cav_ret = CspEncryptAes(blockMode, aes->asyncDev.nitrox.contextHandle,
             CAVIUM_NO_UPDATE, aes_type,
             (word16)slen, (byte*)in + offset, out + offset, (byte*)iv, (byte*)key,
             &aes->asyncDev.nitrox.reqId, aes->asyncDev.nitrox.devId);
     #endif
-        ret = NitroxTranslateResponseCode(ret);
+        ret = NitroxTranslateResponseCode(cav_ret);
         if (ret != 0) {
-            return ret;
+            break;
         }
 
         length -= slen;
@@ -712,7 +714,13 @@ static int NitroxAesEncrypt(Aes* aes, int aes_algo,
 
         XMEMCPY(aes->reg, out + offset - AES_BLOCK_SIZE, AES_BLOCK_SIZE);
     }
-    return 0;
+
+#ifdef WOLFSSL_NITROX_DEBUG
+    printf("NitroxAesEncrypt: ret %x (%d), algo %d, in %p, out %p, sz %d, iv %p, aad %p (%d), tag %p\n",
+        cav_ret, ret, aes_algo, in, out, offset, iv, aad, aad_len, tag);
+#endif
+
+    return ret;
 }
 
 #ifdef HAVE_AES_DECRYPT
@@ -721,7 +729,7 @@ static int NitroxAesDecrypt(Aes* aes, int aes_algo,
     byte* out, const byte* in, word32 length,
     word32 aad_len, const byte* aad, const byte* tag)
 {
-    int ret;
+    int ret = 0, cav_ret = 0;
     int offset = 0;
     AesType aes_type;
     const int blockMode = CAVIUM_BLOCKING;
@@ -743,28 +751,30 @@ static int NitroxAesDecrypt(Aes* aes, int aes_algo,
         XMEMCPY(aes->tmp, in + offset + slen - AES_BLOCK_SIZE, AES_BLOCK_SIZE);
 
     #ifdef HAVE_CAVIUM_V
-        ret = CspDecryptAes(aes->asyncDev.nitrox.devId, blockMode,
+        cav_ret = CspDecryptAes(aes->asyncDev.nitrox.devId, blockMode,
             DMA_DIRECT_DIRECT, CAVIUM_SSL_GRP, CAVIUM_DPORT,
             aes->asyncDev.nitrox.contextHandle, FROM_DPTR, FROM_CTX, aes_algo,
             aes_type, (byte*)key, (byte*)iv, aad_len, (byte*)aad, (byte*)tag,
             (word16)slen, (byte*)in + offset, out + offset,
             &aes->asyncDev.nitrox.reqId);
     #else
-        if (aes_type != AES_CBC)
-            return NOT_COMPILED_IN;
+        if (aes_type != AES_CBC) {
+            ret = NOT_COMPILED_IN;
+            break;
+        }
 
         (void)aad_len;
         (void)aad;
         (void)tag;
 
-        ret = CspDecryptAes(blockMode, aes->asyncDev.nitrox.contextHandle,
+        cav_ret = CspDecryptAes(blockMode, aes->asyncDev.nitrox.contextHandle,
             CAVIUM_NO_UPDATE, aes_sz_type,
             (word16)slen, (byte*)in + offset, out + offset, (byte*)iv, (byte*)key,
             &aes->asyncDev.nitrox.reqId, aes->asyncDev.nitrox.devId);
     #endif
-        ret = NitroxTranslateResponseCode(ret);
+        ret = NitroxTranslateResponseCode(cav_ret);
         if (ret != 0) {
-            return ret;
+            break;
         }
         length -= slen;
         offset += slen;
@@ -772,7 +782,12 @@ static int NitroxAesDecrypt(Aes* aes, int aes_algo,
         XMEMCPY(aes->reg, aes->tmp, AES_BLOCK_SIZE);
     }
 
-    return 0;
+#ifdef WOLFSSL_NITROX_DEBUG
+    printf("NitroxAesDecrypt: ret %x (%d), algo %d, in %p, out %p, sz %d, iv %p, aad %p (%d), tag %p\n",
+        cav_ret, ret, aes_algo, in, out, offset, iv, aad, aad_len, tag);
+#endif
+
+    return ret;
 }
 #endif /* HAVE_AES_DECRYPT */
 
@@ -842,7 +857,7 @@ int NitroxArc4SetKey(Arc4* arc4, const byte* key, word32 length)
 
 int NitroxArc4Process(Arc4* arc4, byte* out, const byte* in, word32 length)
 {
-    int ret = 0;
+    int ret = 0, cav_ret = 0;
     int offset = 0;
     const int blockMode = CAVIUM_BLOCKING;
 
@@ -855,18 +870,24 @@ int NitroxArc4Process(Arc4* arc4, byte* out, const byte* in, word32 length)
         if (slen > NITROX_MAX_BUF_LEN)
             slen = NITROX_MAX_BUF_LEN;
 
-        ret = CspEncryptRc4(blockMode,
+        cav_ret = CspEncryptRc4(blockMode,
             arc4->asyncDev.nitrox.contextHandle, CAVIUM_UPDATE, (word16)slen,
             (byte*)in + offset, out + offset,
             &arc4->asyncDev.nitrox.reqId, arc4->devId);
-        ret = NitroxTranslateResponseCode(ret);
+        ret = NitroxTranslateResponseCode(cav_ret);
         if (ret != 0) {
-            return ret;
+            break;
         }
 
         length -= slen;
         offset += slen;
     }
+
+#ifdef WOLFSSL_NITROX_DEBUG
+    printf("NitroxArc4Process: ret %x (%d), in %p, output %p, sz %d\n",
+        cav_ret, ret, in, output, offset);
+#endif
+
     return ret;
 }
 #endif /* !NO_ARC4 && !HAVE_CAVIUM_V */
@@ -875,7 +896,7 @@ int NitroxArc4Process(Arc4* arc4, byte* out, const byte* in, word32 length)
 #ifndef NO_DES3
 int NitroxDes3CbcEncrypt(Des3* des3, byte* out, const byte* in, word32 length)
 {
-    int ret;
+    int ret = 0, cav_ret = 0;
     int offset = 0;
     const int blockMode = CAVIUM_BLOCKING;
 
@@ -889,21 +910,21 @@ int NitroxDes3CbcEncrypt(Des3* des3, byte* out, const byte* in, word32 length)
             slen = NITROX_MAX_BUF_LEN;
 
     #ifdef HAVE_CAVIUM_V
-        ret = CspEncrypt3Des(des3->asyncDev.nitrox.devId, blockMode,
+        cav_ret = CspEncrypt3Des(des3->asyncDev.nitrox.devId, blockMode,
             DMA_DIRECT_DIRECT, CAVIUM_SSL_GRP, CAVIUM_DPORT,
             des3->asyncDev.nitrox.contextHandle, FROM_DPTR, FROM_CTX, DES3_CBC,
             (byte*)des3->key_raw, (byte*)des3->iv_raw, (word16)slen, (byte*)in + offset,
             out + offset, &des3->asyncDev.nitrox.reqId);
     #else
-        ret = CspEncrypt3Des(blockMode,
+        cav_ret = CspEncrypt3Des(blockMode,
             des3->asyncDev.nitrox.contextHandle, CAVIUM_NO_UPDATE, (word16)slen,
             (byte*)in + offset, out + offset, (byte*)des3->iv_raw,
             (byte*)des3->key_raw, &des3->asyncDev.nitrox.reqId,
             des3->asyncDev.nitrox.devId);
     #endif
-        ret = NitroxTranslateResponseCode(ret);
+        ret = NitroxTranslateResponseCode(cav_ret);
         if (ret != 0) {
-            return ret;
+            break;
         }
         length -= slen;
         offset += slen;
@@ -911,12 +932,17 @@ int NitroxDes3CbcEncrypt(Des3* des3, byte* out, const byte* in, word32 length)
         XMEMCPY(des3->reg, out + offset - DES_BLOCK_SIZE, DES_BLOCK_SIZE);
     }
 
-    return 0;
+#ifdef WOLFSSL_NITROX_DEBUG
+    printf("NitroxDes3CbcEncrypt: ret %x (%d), in %p, out %p, sz %d\n",
+        cav_ret, ret, in, out, offset);
+#endif
+
+    return ret;
 }
 
 int NitroxDes3CbcDecrypt(Des3* des3, byte* out, const byte* in, word32 length)
 {
-    int ret;
+    int ret = 0, cav_ret = 0;
     int offset = 0;
     const int blockMode = CAVIUM_BLOCKING;
 
@@ -932,28 +958,34 @@ int NitroxDes3CbcDecrypt(Des3* des3, byte* out, const byte* in, word32 length)
         XMEMCPY(des3->tmp, in + offset + slen - DES_BLOCK_SIZE, DES_BLOCK_SIZE);
 
     #ifdef HAVE_CAVIUM_V
-        ret = CspDecrypt3Des(des3->asyncDev.nitrox.devId, blockMode,
+        cav_ret = CspDecrypt3Des(des3->asyncDev.nitrox.devId, blockMode,
             DMA_DIRECT_DIRECT, CAVIUM_SSL_GRP, CAVIUM_DPORT,
             des3->asyncDev.nitrox.contextHandle, FROM_DPTR, FROM_CTX, DES3_CBC,
             (byte*)des3->key_raw, (byte*)des3->iv_raw, (word16)slen, (byte*)in + offset,
             out + offset, &des3->asyncDev.nitrox.reqId);
     #else
-        ret = CspDecrypt3Des(blockMode,
+        cav_ret = CspDecrypt3Des(blockMode,
             des3->asyncDev.nitrox.contextHandle, CAVIUM_NO_UPDATE, (word16)slen,
             (byte*)in + offset, out + offset, (byte*)des3->iv_raw,
             (byte*)des3->key_raw, &des3->asyncDev.nitrox.reqId,
             des3->asyncDev.nitrox.devId);
     #endif
-        ret = NitroxTranslateResponseCode(ret);
+        ret = NitroxTranslateResponseCode(cav_ret);
         if (ret != 0) {
-            return ret;
+            break;
         }
         length -= slen;
         offset += slen;
 
         XMEMCPY(des3->reg, des3->tmp, DES_BLOCK_SIZE);
     }
-    return 0;
+
+#ifdef WOLFSSL_NITROX_DEBUG
+    printf("NitroxDes3CbcDecrypt: ret %x (%d), in %p, out %p, sz %d\n",
+        cav_ret, ret, in, out, offset);
+#endif
+
+    return ret;
 }
 #endif /* !NO_DES3 */
 
@@ -1081,6 +1113,10 @@ int NitroxHmacUpdate(Hmac* hmac, const byte* msg, word32 length)
     #endif
     }
 
+#ifdef WOLFSSL_NITROX_DEBUG
+    printf("NitroxHmacUpdate: ret %x, msg %p, length %d\n", ret, msg, length);
+#endif
+
     ret = NitroxTranslateResponseCode(ret);
     if (ret != 0) {
         return ret;
@@ -1115,6 +1151,11 @@ int NitroxHmacFinal(Hmac* hmac, byte* hash, word16 hashLen)
         cav_type, 0, NULL, hash,
         &hmac->asyncDev.nitrox.reqId, hmac->asyncDev.nitrox.devId);
 #endif
+
+#ifdef WOLFSSL_NITROX_DEBUG
+    printf("NitroxHmacFinal: ret %x, hash %p, hashLen %d\n", ret, hash, hashLen);
+#endif
+
     ret = NitroxTranslateResponseCode(ret);
     if (ret != 0) {
         return ret;
@@ -1128,9 +1169,9 @@ int NitroxHmacFinal(Hmac* hmac, byte* hash, word16 hashLen)
 
 int NitroxRngGenerateBlock(WC_RNG* rng, byte* output, word32 sz)
 {
-    int ret = 0;
-    wolfssl_word offset = 0;
-    CavReqId     requestId;
+    int ret = 0, cav_ret = 0;
+    word32    offset = 0;
+    CavReqId  requestId;
     const int blockMode = CAVIUM_BLOCKING;
 
     /* init return codes */
@@ -1143,14 +1184,14 @@ int NitroxRngGenerateBlock(WC_RNG* rng, byte* output, word32 sz)
             slen = NITROX_MAX_BUF_LEN;
 
     #ifdef HAVE_CAVIUM_V
-        ret = CspTrueRandom(rng->asyncDev.nitrox.devId, blockMode,
+        cav_ret = CspTrueRandom(rng->asyncDev.nitrox.devId, blockMode,
             DMA_DIRECT_DIRECT, CAVIUM_SSL_GRP, CAVIUM_DPORT, (word16)slen,
             output + offset, &requestId);
     #else
-        ret = CspRandom(blockMode, (word16)slen, output + offset, &requestId,
+        cav_ret = CspRandom(blockMode, (word16)slen, output + offset, &requestId,
             rng->asyncDev.nitrox.devId);
     #endif
-        ret = NitroxTranslateResponseCode(ret);
+        ret = NitroxTranslateResponseCode(cav_ret);
         if (ret != 0) {
             break;
         }
@@ -1158,6 +1199,11 @@ int NitroxRngGenerateBlock(WC_RNG* rng, byte* output, word32 sz)
         sz     -= slen;
         offset += slen;
     }
+
+#ifdef WOLFSSL_NITROX_DEBUG
+    printf("NitroxRngGenerateBlock: ret %x (%d), output %p, sz %d\n",
+        cav_ret, ret, output, offset);
+#endif
 
     return ret;
 }
