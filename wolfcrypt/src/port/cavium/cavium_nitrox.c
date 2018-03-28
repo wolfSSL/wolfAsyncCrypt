@@ -279,8 +279,6 @@ int NitroxRsaExptMod(const byte* in, word32 inLen,
         return ret;
     }
 
-    *outLen = modLen; /* always use modLen */
-
     return ret;
 }
 
