@@ -372,6 +372,7 @@ WOLFSSL_LOCAL int IntelQaGetCyInstanceCount(void);
 #endif /* !NO_DH */
 
 #ifndef NO_HMAC
+    WOLFSSL_LOCAL int IntelQaHmacGetType(int macType, word32* hashAlgorithm);
     WOLFSSL_LOCAL int IntelQaHmac(struct WC_ASYNC_DEV* dev,
         int macType, byte* keyRaw, word16 keyLen,
         byte* out, const byte* in, word32 sz);
