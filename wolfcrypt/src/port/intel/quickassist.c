@@ -2387,41 +2387,39 @@ int IntelQaSymMd5(WC_ASYNC_DEV* dev, byte* out, const byte* in, word32 sz)
 #endif /* !NO_MD5 */
 
 #ifndef NO_HMAC
-    int IntelQaHmac(struct WC_ASYNC_DEV* dev,
-        int macType, byte* keyRaw, word16 keyLen,
-        byte* out, const byte* in, word32 sz)
+    int IntelQaHmacGetType(int macType, word32* hashAlgorithm)
     {
-        CpaCySymHashAlgorithm hashAlgorithm;
+        int ret = 0;
 
         switch (macType) {
         #ifndef NO_MD5
             case WC_MD5:
-                hashAlgorithm = CPA_CY_SYM_HASH_MD5;
+                if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_MD5;
                 break;
         #endif
         #ifndef NO_SHA
             case WC_SHA:
-                hashAlgorithm = CPA_CY_SYM_HASH_SHA1;
+                if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA1;
                 break;
         #endif
         #ifdef WOLFSSL_SHA224
             case WC_SHA224:
-                hashAlgorithm = CPA_CY_SYM_HASH_SHA224;
+                if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA224;
                 break;
         #endif
         #ifndef NO_SHA256
             case WC_SHA256:
-                hashAlgorithm = CPA_CY_SYM_HASH_SHA256;
+                if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA256;
                 break;
         #endif
         #ifdef WOLFSSL_SHA512
         #ifdef WOLFSSL_SHA384
             case WC_SHA384:
-                hashAlgorithm = CPA_CY_SYM_HASH_SHA384;
+                if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA384;
                 break;
         #endif
             case WC_SHA512:
-                hashAlgorithm = CPA_CY_SYM_HASH_SHA512;
+                if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA512;
                 break;
         #endif
         #ifdef HAVE_BLAKE2
@@ -2430,6 +2428,19 @@ int IntelQaSymMd5(WC_ASYNC_DEV* dev, byte* out, const byte* in, word32 sz)
             default:
                 return NOT_COMPILED_IN;
         }
+        return ret;
+    }
+
+    int IntelQaHmac(struct WC_ASYNC_DEV* dev,
+        int macType, byte* keyRaw, word16 keyLen,
+        byte* out, const byte* in, word32 sz)
+    {
+        int ret;
+        CpaCySymHashAlgorithm hashAlgorithm;
+
+        ret = IntelQaHmacGetType(macType, &hashAlgorithm);
+        if (ret != 0)
+            return ret;
 
         return IntelQaSymHash(dev, out, in, sz,
             CPA_CY_SYM_HASH_MODE_AUTH, hashAlgorithm, keyRaw, keyLen);

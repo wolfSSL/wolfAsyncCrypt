@@ -24,38 +24,42 @@
 
 #ifdef HAVE_CAVIUM
 
-#include <wolfssl/wolfcrypt/logging.h>
-
 #ifndef HAVE_CAVIUM_V
     #include "cavium_sysdep.h"
 #endif
 #include "cavium_common.h"
-#ifndef HAVE_CAVIUM_V
-    #include "cavium_ioctl.h"
-#else
-    #include "cavium_sym_crypto.h"
-    #include "cavium_asym_crypto.h"
-#endif
-#include <errno.h>
 
 #define CAVIUM_SSL_GRP      0
 #define CAVIUM_DPORT        256
 
 /* Compatibility with older Cavium SDK's */
 #ifndef HAVE_CAVIUM_V
-    typedef int CspHandle;
+    typedef int    CspHandle;
     typedef word32 CavReqId;
 
     #define AES_128 AES_128_BIT
     #define AES_192 AES_192_BIT
     #define AES_256 AES_256_BIT
+
+    #define MAX_TO_POLL 30
+    typedef int    context_type_t;
+
+    struct CspMultiRequestStatusBuffer {
+        int count;
+        CspRequestStatusBuffer req[MAX_TO_POLL];
+    };
+    #define AES_CBC 0x3
+    #define AES_GCM 0x7
 #else
+    typedef int    CspHandle;
+    typedef word64 CavReqId;
     #define CAVIUM_DEV_ID       0
     #define CAVIUM_BLOCKING     BLOCKING
     #define CAVIUM_NON_BLOCKING NON_BLOCKING
     #define CAVIUM_DIRECT       DMA_DIRECT_DIRECT
-    typedef Uint64 CavReqId;
 #endif
+
+typedef struct CspMultiRequestStatusBuffer CspMultiRequestStatusBuffer;
 
 #ifdef WOLFSSL_ASYNC_CRYPT
     #define CAVIUM_REQ_MODE CAVIUM_NON_BLOCKING
@@ -65,7 +69,7 @@
 
 
 #ifdef WOLFSSL_ASYNC_CRYPT
-    #define CAVIUM_MAX_PENDING  90
+    #define CAVIUM_MAX_PENDING  10 /* 90 */
     #define CAVIUM_MAX_POLL     MAX_TO_POLL
 #endif
 
@@ -73,18 +77,18 @@
 typedef struct CaviumNitroxDev {
     CspHandle      devId;                      /* nitrox device id */
     context_type_t type;                       /* Typically CONTEXT_SSL, but also ECC types */
-    Uint64         contextHandle;              /* nitrox context memory handle */
+    word64         contextHandle;              /* nitrox context memory handle */
     CavReqId       reqId;                      /* Current requestId */
 } CaviumNitroxDev;
 
 struct WOLF_EVENT;
 struct WC_ASYNC_DEV;
-struct WC_RNG;
-
+struct WC_BIGINT;
 
 /* Wrapper API's */
 WOLFSSL_LOCAL int NitroxTranslateResponseCode(int ret);
 WOLFSSL_LOCAL CspHandle NitroxGetDeviceHandle(void);
+WOLFSSL_LOCAL CspHandle NitroxOpenDeviceDefault(void);
 WOLFSSL_LOCAL CspHandle NitroxOpenDevice(int dma_mode, int dev_id);
 WOLFSSL_LOCAL int NitroxAllocContext(struct WC_ASYNC_DEV* dev, CspHandle devId,
     context_type_t type);
@@ -94,7 +98,7 @@ WOLFSSL_LOCAL void NitroxCloseDevice(CspHandle devId);
 #if defined(WOLFSSL_ASYNC_CRYPT)
 WOLFSSL_LOCAL int NitroxCheckRequest(struct WC_ASYNC_DEV* dev, struct WOLF_EVENT* event);
 WOLFSSL_LOCAL int NitroxCheckRequests(struct WC_ASYNC_DEV* dev,
-    struct CspMultiRequestStatusBuffer* req_stat_buf);
+    CspMultiRequestStatusBuffer* req_stat_buf);
 #endif /* WOLFSSL_ASYNC_CRYPT */
 
 
@@ -116,6 +120,34 @@ WOLFSSL_LOCAL int NitroxCheckRequests(struct WC_ASYNC_DEV* dev,
                                 byte* out, word32 *outLen, struct RsaKey* key);
 #endif /* !NO_RSA */
 
+#if defined(HAVE_ECC) && defined(HAVE_CAVIUM_V)
+    struct ecc_key;
+    WOLFSSL_LOCAL int NitroxEccGetSize(struct ecc_key* key);
+    WOLFSSL_LOCAL int NitroxEccRsSplit(struct ecc_key* key,
+        struct WC_BIGINT* r, struct WC_BIGINT* s);
+    WOLFSSL_LOCAL int NitroxEccIsCurveSupported(struct ecc_key* key);
+    WOLFSSL_LOCAL int NitroxEccPad(struct WC_BIGINT* bi, word32 padTo);
+    #ifdef HAVE_ECC_DHE
+        WOLFSSL_LOCAL int NitroxEcdh(struct ecc_key* key,
+            struct WC_BIGINT* k, struct WC_BIGINT* xG, struct WC_BIGINT* yG,
+            byte* out, word32* outlen, struct WC_BIGINT* q);
+    #endif /* HAVE_ECC_DHE */
+    #ifdef HAVE_ECC_SIGN
+        WOLFSSL_LOCAL int NitroxEcdsaSign(struct ecc_key* key,
+            struct WC_BIGINT* m, struct WC_BIGINT* d,
+            struct WC_BIGINT* k,
+            struct WC_BIGINT* r, struct WC_BIGINT* s,
+            struct WC_BIGINT* q, struct WC_BIGINT* n);
+    #endif /* HAVE_ECC_SIGN */
+    #ifdef HAVE_ECC_VERIFY
+        WOLFSSL_LOCAL int NitroxEcdsaVerify(struct ecc_key* key,
+            struct WC_BIGINT* m, struct WC_BIGINT* xp,
+            struct WC_BIGINT* yp, struct WC_BIGINT* r,
+            struct WC_BIGINT* s, struct WC_BIGINT* q,
+            struct WC_BIGINT* n, int* stat);
+    #endif /* HAVE_ECC_VERIFY */
+#endif /* HAVE_ECC */
+
 #ifndef NO_AES
     struct Aes;
     #ifdef HAVE_AES_CBC
@@ -126,13 +158,30 @@ WOLFSSL_LOCAL int NitroxCheckRequests(struct WC_ASYNC_DEV* dev,
                                                 const byte* in, word32 length);
     #endif /* HAVE_AES_DECRYPT */
     #endif /* HAVE_AES_CBC */
+
+    #ifdef HAVE_AESGCM
+        WOLFSSL_LOCAL int NitroxAesGcmEncrypt(struct Aes* aes,
+            byte* out, const byte* in, word32 sz,
+            const byte* key, word32 keySz,
+            const byte* iv, word32 ivSz,
+            byte* authTag, word32 authTagSz,
+            const byte* authIn, word32 authInSz);
+    #ifdef HAVE_AES_DECRYPT
+        WOLFSSL_LOCAL int NitroxAesGcmDecrypt(struct Aes* aes,
+            byte* out, const byte* in, word32 sz,
+            const byte* key, word32 keySz,
+            const byte* iv, word32 ivSz,
+            const byte* authTag, word32 authTagSz,
+            const byte* authIn, word32 authInSz);
+    #endif /* HAVE_AES_DECRYPT */
+    #endif /* HAVE_AESGCM */
 #endif /* !NO_AES */
 
 #ifndef NO_RC4
     struct Arc4;
-    WOLFSSL_LOCAL void NitroxArc4SetKey(struct Arc4* arc4, const byte* key,
+    WOLFSSL_LOCAL int NitroxArc4SetKey(struct Arc4* arc4, const byte* key,
                                                                 word32 length);
-    WOLFSSL_LOCAL void NitroxArc4Process(struct Arc4* arc4, byte* out,
+    WOLFSSL_LOCAL int NitroxArc4Process(struct Arc4* arc4, byte* out,
                                                 const byte* in, word32 length);
 #endif /* !NO_RC4 */
 
@@ -150,10 +199,11 @@ WOLFSSL_LOCAL int NitroxCheckRequests(struct WC_ASYNC_DEV* dev,
     struct Hmac;
     WOLFSSL_LOCAL int NitroxHmacUpdate(struct Hmac* hmac, const byte* msg,
                                                                 word32 length);
-    WOLFSSL_LOCAL int NitroxHmacFinal(struct Hmac* hmac, int type, byte* hash,
+    WOLFSSL_LOCAL int NitroxHmacFinal(struct Hmac* hmac, byte* hash,
                                                                 word16 hashLen);
 #endif /* NO_HMAC */
 
+struct WC_RNG;
 WOLFSSL_API int NitroxRngGenerateBlock(struct WC_RNG* rng, byte* output, word32 sz);
 
 

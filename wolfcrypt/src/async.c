@@ -26,6 +26,7 @@
 #include <wolfssl/wolfcrypt/settings.h>
 
 #ifdef WOLFSSL_ASYNC_CRYPT
+
 #include <wolfssl/internal.h>
 #include <wolfssl/error-ssl.h>
 #include <wolfssl/wolfcrypt/error-crypt.h>
@@ -304,7 +305,7 @@ int wolfAsync_DevOpenThread(int *pDevId, void* threadId)
     int devId = INVALID_DEVID;
 
 #ifdef HAVE_CAVIUM
-    ret = NitroxOpenDevice(CAVIUM_DIRECT, CAVIUM_DEV_ID);
+    ret = NitroxOpenDeviceDefault();
     if (ret >= 0)
         devId = ret;
     else
@@ -468,6 +469,40 @@ int wolfAsync_EventQueuePush(WOLF_EVENT_QUEUE* queue, WOLF_EVENT* event)
     return wolfEventQueue_Push(queue, event);
 }
 
+#ifdef HAVE_CAVIUM
+static int wolfAsync_NitroxCheckReq(WC_ASYNC_DEV* asyncDev, WOLF_EVENT* event)
+{
+    int ret;
+
+    /* populate event requestId */
+    event->reqId = asyncDev->nitrox.reqId;
+    if (event->reqId == 0)
+        return WC_INIT_E;
+
+    /* poll specific request */
+    ret = NitroxCheckRequest(asyncDev, event);
+
+#ifdef WOLFSSL_NITROX_DEBUG
+    if (event->ret == WC_PENDING_E)
+        event->pendCount++;
+    else
+        printf("NitroxCheckRequest: ret %x, req %lx, count %d\n",
+            ret,
+            event->reqId,
+            event->pendCount);
+#else
+    (void)ret;
+#endif
+
+    /* if not pending then clear requestId */
+    if (event->ret != WC_PENDING_E) {
+        event->reqId = 0;
+    }
+
+    return 0;
+}
+#endif /* HAVE_CAVIUM */
+
 int wolfAsync_EventPoll(WOLF_EVENT* event, WOLF_EVENT_FLAG flags)
 {
     int ret = 0;
@@ -479,14 +514,15 @@ int wolfAsync_EventPoll(WOLF_EVENT* event, WOLF_EVENT_FLAG flags)
         return BAD_FUNC_ARG;
     }
     asyncDev = event->dev.async;
-
-    /* Note: event queue mutex is locked here, so make sure
-        hardware doesn't try and lock event_queue */
+    if (asyncDev == NULL) {
+        return WC_INIT_E;
+    }
 
     if (flags & WOLF_POLL_FLAG_CHECK_HW) {
     #if defined(HAVE_CAVIUM)
-        event->ret = NitroxCheckRequest(asyncDev, event);
+        ret = wolfAsync_NitroxCheckReq(asyncDev, event);
     #elif defined(HAVE_INTEL_QA)
+        /* poll QAT hardware, callback returns data, IntelQaPoll sets event */
         ret = IntelQaPoll(asyncDev);
     #elif defined(WOLFSSL_ASYNC_CRYPT_TEST)
         event->ret = wolfAsync_crypt_test(asyncDev);
@@ -503,9 +539,9 @@ int wolfAsync_EventPoll(WOLF_EVENT* event, WOLF_EVENT_FLAG flags)
 
 
 #ifdef HAVE_CAVIUM
-static int wolfAsync_CheckMultiReqBuf(WC_ASYNC_DEV* asyncDev,
+static int wolfAsync_NitroxCheckMultiReqBuf(WC_ASYNC_DEV* asyncDev,
     WOLF_EVENT_QUEUE* queue, void* context_filter,
-    struct CspMultiRequestStatusBuffer* multi_req)
+    CspMultiRequestStatusBuffer* multi_req, int req_count)
 {
     WOLF_EVENT* event;
     int ret = 0, i;
@@ -520,7 +556,7 @@ static int wolfAsync_CheckMultiReqBuf(WC_ASYNC_DEV* asyncDev,
         return ret;
     }
 
-    /* Itterate event queue */
+    /* Iterate event queue */
     for (event = queue->head; event != NULL; event = event->next) {
         if (event->type >= WOLF_EVENT_TYPE_ASYNC_FIRST &&
             event->type <= WOLF_EVENT_TYPE_ASYNC_LAST)
@@ -528,9 +564,21 @@ static int wolfAsync_CheckMultiReqBuf(WC_ASYNC_DEV* asyncDev,
             /* optional filter based on context */
             if (context_filter == NULL || event->context == context_filter) {
                 /* find request */
-                for (i = 0; i < multi_req->count; i++) {
-                    if (event->reqId > 0 && event->reqId == multi_req->req[i].request_id) {
-                        event->ret = NitroxTranslateResponseCode(multi_req->req[i].status);
+                for (i = 0; i < req_count; i++) {
+                    if (event->reqId == multi_req->req[i].request_id) {
+
+                        event->ret = NitroxTranslateResponseCode(
+                            multi_req->req[i].status);
+
+                    #ifdef WOLFSSL_NITROX_DEBUG
+                        if (event->ret == WC_PENDING_E)
+                            event->pendCount++;
+                        else
+                            printf("NitroxCheckRequests: ret %x, req %lx, count %d\n",
+                                multi_req->req[i].status,
+                                multi_req->req[i].request_id,
+                                event->pendCount);
+                    #endif
 
                         /* If not pending then mark as done */
                         if (event->ret != WC_PENDING_E) {
@@ -545,11 +593,12 @@ static int wolfAsync_CheckMultiReqBuf(WC_ASYNC_DEV* asyncDev,
     }
 
     /* reset multi request buffer */
-    XMEMSET(multi_req, 0, sizeof(struct CspMultiRequestStatusBuffer));
+    XMEMSET(multi_req, 0, sizeof(CspMultiRequestStatusBuffer));
+    multi_req->count = CAVIUM_MAX_POLL;
 
     return ret;
 }
-#endif
+#endif /* HAVE_CAVIUM */
 
 int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
     WOLF_EVENT** events, int maxEvents, WOLF_EVENT_FLAG flags, int* eventCount)
@@ -557,9 +606,13 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
     WOLF_EVENT* event;
     int ret = 0, count = 0;
     WC_ASYNC_DEV* asyncDev = NULL;
-#ifdef HAVE_CAVIUM
-    struct CspMultiRequestStatusBuffer multi_req;
-    XMEMSET(&multi_req, 0, sizeof(multi_req));
+#if defined(HAVE_CAVIUM)
+    CspMultiRequestStatusBuffer multi_req;
+    int req_count = 0;
+
+    /* reset multi request buffer */
+    XMEMSET(&multi_req, 0, sizeof(CspMultiRequestStatusBuffer));
+    multi_req.count = CAVIUM_MAX_POLL;
 #endif
 
     /* possible un-used variable */
@@ -579,7 +632,6 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
     /* if check hardware flag is set */
     if (flags & WOLF_POLL_FLAG_CHECK_HW) {
         /* check event queue */
-        count = 0;
         for (event = queue->head; event != NULL; event = event->next) {
             if (event->type >= WOLF_EVENT_TYPE_ASYNC_FIRST &&
                 event->type <= WOLF_EVENT_TYPE_ASYNC_LAST)
@@ -596,22 +648,24 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
                     count++;
 
             #if defined(HAVE_CAVIUM)
-                    /* Add entry to multi-request buffer */
+                    /* populate event requestId */
+                    event->reqId = asyncDev->nitrox.reqId;
+
+                    /* add entry to multi-request buffer for polling */
                     if (event->reqId > 0) {
-                        multi_req.req[multi_req.count].request_id = event->reqId;
-                        multi_req.count++;
+                        multi_req.req[req_count++].request_id = event->reqId;
                     }
-                    /* Submit filled multi-request query */
-                    if (multi_req.count >= CAVIUM_MAX_POLL) {
-                        ret = wolfAsync_CheckMultiReqBuf(asyncDev,
-                                            queue, context_filter, &multi_req);
+                    /* submit filled multi-request query */
+                    if (req_count == CAVIUM_MAX_POLL) {
+                        ret = wolfAsync_NitroxCheckMultiReqBuf(asyncDev,
+                                queue, context_filter, &multi_req, req_count);
                         if (ret != 0) {
                             break;
                         }
                     }
             #else
                 #if defined(HAVE_INTEL_QA)
-                    /* poll QAT hardware, callback returns data, this thread poll sets event */
+                    /* poll QAT hardware, callback returns data, IntelQaPoll sets event */
                     ret = IntelQaPoll(asyncDev);
                     if (ret != 0) {
                         break;
@@ -642,10 +696,10 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
         } /* for */
 
     #if defined(HAVE_CAVIUM)
-        /* Submit partial multi-request query (if no prev errors) */
-        if (ret == 0 && multi_req.count > 0) {
-            ret = wolfAsync_CheckMultiReqBuf(asyncDev,
-                                queue, context_filter, &multi_req);
+        /* submit partial multi-request query (if no prev errors) */
+        if (ret == 0 && req_count > 0) {
+            ret = wolfAsync_NitroxCheckMultiReqBuf(asyncDev,
+                            queue, context_filter, &multi_req, req_count);
         }
     #endif
     } /* flag WOLF_POLL_FLAG_CHECK_HW */
@@ -713,7 +767,7 @@ int wolfAsync_EventInit(WOLF_EVENT* event, WOLF_EVENT_TYPE type, void* context,
     event->dev.async = asyncDev;
     event->flags = flags;
 #ifdef HAVE_CAVIUM
-    event->reqId = asyncDev->nitrox.reqId;
+    event->reqId = 0;
 #endif
 
     return ret;
