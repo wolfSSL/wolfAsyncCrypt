@@ -3404,10 +3404,15 @@ int IntelQaDrbg(WC_ASYNC_DEV* dev, byte* rngBuf, word32 rngSz)
             gen = 0xFFFF;
 
         pOut->dataLenInBytes = gen;
-        pOut->pData = XREALLOC(&rngBuf[idx], gen, dev->heap,
-            DYNAMIC_TYPE_ASYNC_NUMA);
-        if (pOut->pData == NULL) {
-            ret = MEMORY_E; goto exit;
+        if (idx == 0 && pOut->pData == NULL) {
+            pOut->pData = XREALLOC(rngBuf, gen, dev->heap,
+                DYNAMIC_TYPE_ASYNC_NUMA);
+            if (pOut->pData == NULL) {
+                ret = MEMORY_E; goto exit;
+            }
+        }
+        else {
+            XMEMCPY(pOut->pData, &rngBuf[idx], gen);
         }
 
         opData->sessionHandle = dev->qat.op.drbg.handle;
