@@ -963,13 +963,13 @@ int wc_AsyncThreadCreate(pthread_t *thread,
         uint32_t count;
     } cpu_set_t;
 
-    static INLINE void CPU_ZERO(cpu_set_t *cs) {
+    static WC_INLINE void CPU_ZERO(cpu_set_t *cs) {
         cs->count = 0;
     }
-    static INLINE void CPU_SET(int num, cpu_set_t *cs) {
+    static WC_INLINE void CPU_SET(int num, cpu_set_t *cs) {
         cs->count |= (1 << num);
     }
-    static INLINE int CPU_ISSET(int num, cpu_set_t *cs) {
+    static WC_INLINE int CPU_ISSET(int num, cpu_set_t *cs) {
         return (cs->count & (1 << num));
     }
 

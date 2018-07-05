@@ -93,7 +93,7 @@ int NitroxTranslateResponseCode(int ret)
     return ret;
 }
 
-static INLINE void NitroxDevClear(WC_ASYNC_DEV* dev)
+static WC_INLINE void NitroxDevClear(WC_ASYNC_DEV* dev)
 {
     /* values that must be reset prior to calling algo */
     /* this is because operation may complete before added to event list */

@@ -155,7 +155,7 @@ static void IntelQaStopPollingThread(WC_ASYNC_DEV* dev)
 /* Buffer Helpers */
 /* -------------------------------------------------------------------------- */
 #if defined(HAVE_ECC) || !defined(NO_DH)
-static INLINE int IntelQaBigIntToFlatBuffer(WC_BIGINT* src, CpaFlatBuffer* dst)
+static WC_INLINE int IntelQaBigIntToFlatBuffer(WC_BIGINT* src, CpaFlatBuffer* dst)
 {
     if (src == NULL || src->buf == NULL || dst == NULL) {
         return BAD_FUNC_ARG;
@@ -167,7 +167,7 @@ static INLINE int IntelQaBigIntToFlatBuffer(WC_BIGINT* src, CpaFlatBuffer* dst)
     return 0;
 }
 
-static INLINE int IntelQaFlatBufferToBigInt(CpaFlatBuffer* src, WC_BIGINT* dst)
+static WC_INLINE int IntelQaFlatBufferToBigInt(CpaFlatBuffer* src, WC_BIGINT* dst)
 {
     if (src == NULL || src->pData == NULL || dst == NULL) {
         return BAD_FUNC_ARG;
@@ -749,7 +749,7 @@ int IntelQaGetCyInstanceCount(void)
     return g_numInstances;
 }
 
-static INLINE int IntelQaHandleCpaStatus(WC_ASYNC_DEV* dev, CpaStatus status,
+static WC_INLINE int IntelQaHandleCpaStatus(WC_ASYNC_DEV* dev, CpaStatus status,
     int* ret, byte isAsync, void* callback, int* retryCount)
 {
     int retry = 0;
@@ -780,7 +780,7 @@ static INLINE int IntelQaHandleCpaStatus(WC_ASYNC_DEV* dev, CpaStatus status,
     return retry;
 }
 
-static INLINE void IntelQaOpInit(WC_ASYNC_DEV* dev, IntelQaFreeFunc freeFunc)
+static WC_INLINE void IntelQaOpInit(WC_ASYNC_DEV* dev, IntelQaFreeFunc freeFunc)
 {
     dev->qat.ret = WC_PENDING_E;
     dev->qat.freeFunc = freeFunc;
