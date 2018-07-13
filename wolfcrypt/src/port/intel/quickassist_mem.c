@@ -222,7 +222,7 @@ static void* qaeMemAllocNUMA(Cpa32U size, Cpa32U node, Cpa32U alignment,
     word16* p_page_offset);
 static void qaeMemFreeNUMA(void** ptr, word16 page_offset);
 
-static INLINE int qaeMemTypeIsNuma(int type)
+static WC_INLINE int qaeMemTypeIsNuma(int type)
 {
     int isNuma = 0;
 
