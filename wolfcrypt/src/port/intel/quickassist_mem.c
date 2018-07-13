@@ -374,8 +374,8 @@ static void* _qaeMemAlloc(size_t size, void* heap, int type
     /* allocate type */
     if (isNuma) {
         /* Node is typically 0 */
-        ptr = qaeMemAllocNUMA(size + sizeof(qaeMemHeader), 0, alignment,
-            &page_offset);
+        ptr = qaeMemAllocNUMA((Cpa32U)(size + sizeof(qaeMemHeader)), 0,
+            alignment, &page_offset);
     }
     if (ptr == NULL) {
         isNuma = 0;

@@ -815,12 +815,22 @@ int NitroxAesGcmEncrypt(Aes* aes,
     byte* authTag, word32 authTagSz,
     const byte* authIn, word32 authInSz)
 {
+    const byte* ivTmp = iv;
+    byte ivLcl[AES_BLOCK_SIZE];
+
     (void)keySz;
-    (void)ivSz;
     (void)authTagSz;
-    return NitroxAesEncrypt(aes, AES_GCM, key, iv, out, in, sz,
+
+    /* Nitrox HW requires IV buffer to be 16-bytes */
+    if (ivSz < AES_BLOCK_SIZE) {
+        ivTmp = ivLcl;
+        XMEMCPY(ivLcl, iv, ivSz);
+    }
+
+    return NitroxAesEncrypt(aes, AES_GCM, key, ivTmp, out, in, sz,
         authInSz, authIn, authTag);
 }
+
 #ifdef HAVE_AES_DECRYPT
 int NitroxAesGcmDecrypt(Aes* aes,
     byte* out, const byte* in, word32 sz,
@@ -829,10 +839,19 @@ int NitroxAesGcmDecrypt(Aes* aes,
     const byte* authTag, word32 authTagSz,
     const byte* authIn, word32 authInSz)
 {
+    const byte* ivTmp = iv;
+    byte ivLcl[AES_BLOCK_SIZE];
+
     (void)keySz;
-    (void)ivSz;
     (void)authTagSz;
-    return NitroxAesDecrypt(aes, AES_GCM, key, iv, out, in, sz,
+
+    /* Nitrox HW requires IV buffer to be 16-bytes */
+    if (ivSz < AES_BLOCK_SIZE) {
+        ivTmp = ivLcl;
+        XMEMCPY(ivLcl, iv, ivSz);
+    }
+
+    return NitroxAesDecrypt(aes, AES_GCM, key, ivTmp, out, in, sz,
         authInSz, authIn, authTag);
 }
 #endif /* HAVE_AES_DECRYPT */

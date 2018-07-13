@@ -51,7 +51,6 @@
     #define AES_CBC 0x3
     #define AES_GCM 0x7
 #else
-    typedef int    CspHandle;
     typedef word64 CavReqId;
     #define CAVIUM_DEV_ID       0
     #define CAVIUM_BLOCKING     BLOCKING
