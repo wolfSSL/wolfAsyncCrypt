@@ -2842,7 +2842,7 @@ int IntelQaEcdsaVerify(WC_ASYNC_DEV* dev, WC_BIGINT* m,
     WC_BIGINT* r, WC_BIGINT* s,
     WC_BIGINT* a, WC_BIGINT* b,
     WC_BIGINT* q, WC_BIGINT* n,
-    WC_BIGINT* xg, WC_BIGINT* yg, int* stat)
+    WC_BIGINT* xg, WC_BIGINT* yg, int* pVerifyStatus)
 {
     int ret, retryCount = 0;
     CpaStatus status = CPA_STATUS_SUCCESS;
@@ -2878,7 +2878,7 @@ int IntelQaEcdsaVerify(WC_ASYNC_DEV* dev, WC_BIGINT* m,
     }
 
     /* store info needed for output */
-    dev->qat.op.ecc_verify.stat = stat;
+    dev->qat.op.ecc_verify.stat = pVerifyStatus;
     IntelQaOpInit(dev, IntelQaEcdsaVerifyFree);
 
     /* Perform ECDSA verify */
