@@ -348,6 +348,7 @@ int IntelQaHardwareStart(const char* process_name, int limitDevAccess)
         Cpa32U coreAffinity = 0;
         CpaCySymCapabilitiesInfo capabilities;
         int j;
+        XMEMSET(&capabilities, 0, sizeof(capabilities));
 
         status = cpaCyInstanceGetInfo2(g_cyInstances[i],
                                                     &g_cyInstanceInfo[i]);
@@ -1416,11 +1417,11 @@ static int IntelQaSymClose(WC_ASYNC_DEV* dev, int doFree)
 #endif
 
 #ifdef QAT_DEBUG
-    printf("IntelQaSymClose: dev %p, symCtx %p (src %p), symCtxSize %d, isCopy %d, isOpen %d, doFree %d\n",
-        dev, ctx->symCtx, ctx->symCtxSrc, ctx->symCtxSize, ctx->isCopy, ctx->isOpen, doFree);
+    printf("IntelQaSymClose: dev %p, ctx %p, symCtx %p (src %p), symCtxSize %d, isCopy %d, isOpen %d, doFree %d\n",
+        dev, ctx, ctx->symCtx, ctx->symCtxSrc, ctx->symCtxSize, ctx->isCopy, ctx->isOpen, doFree);
 #endif
 
-    if (ctx->symCtx == ctx->symCtxSrc) {
+    if (ctx->symCtx == ctx->symCtxSrc && ctx->symCtx != NULL) {
         if (ctx->isOpen) {
             ctx->isOpen = 0;
         #ifdef QAT_DEBUG
