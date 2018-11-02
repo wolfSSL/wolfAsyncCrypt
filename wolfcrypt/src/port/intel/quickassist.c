@@ -3343,8 +3343,13 @@ int IntelQaDrbg(WC_ASYNC_DEV* dev, byte* rngBuf, word32 rngSz)
     CpaFlatBuffer* pOut = NULL;
     word32 idx = 0, gen = 0;
 
-    if (dev == NULL || rngBuf == NULL || rngSz == 0) {
+    if (dev == NULL || rngBuf == NULL) {
         return BAD_FUNC_ARG;
+    }
+
+    /* This function can be called with rngSz == 0 */
+    if (rngSz == 0) {
+        return 0; /* no data to get */
     }
 
 #ifdef QAT_DEBUG
