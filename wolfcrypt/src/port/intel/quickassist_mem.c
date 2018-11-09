@@ -428,7 +428,7 @@ static void* _qaeMemAlloc(size_t size, void* heap, int type
 
 #ifdef WOLFSSL_DEBUG_MEMORY
 #ifdef WOLFSSL_DEBUG_MEMORY_PRINT
-    printf("Malloc: %p (%u) at %s:%d, heap %p, type %d\n",
+    printf("Alloc: %p (%u) at %s:%d, heap %p, type %d\n",
         ptr, (unsigned int)size, func, line, heap, type);
 #else
     (void)func;

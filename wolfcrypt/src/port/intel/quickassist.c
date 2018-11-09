@@ -348,6 +348,7 @@ int IntelQaHardwareStart(const char* process_name, int limitDevAccess)
         Cpa32U coreAffinity = 0;
         CpaCySymCapabilitiesInfo capabilities;
         int j;
+        XMEMSET(&capabilities, 0, sizeof(capabilities));
 
         status = cpaCyInstanceGetInfo2(g_cyInstances[i],
                                                     &g_cyInstanceInfo[i]);
@@ -1416,11 +1417,11 @@ static int IntelQaSymClose(WC_ASYNC_DEV* dev, int doFree)
 #endif
 
 #ifdef QAT_DEBUG
-    printf("IntelQaSymClose: dev %p, symCtx %p (src %p), symCtxSize %d, isCopy %d, isOpen %d, doFree %d\n",
-        dev, ctx->symCtx, ctx->symCtxSrc, ctx->symCtxSize, ctx->isCopy, ctx->isOpen, doFree);
+    printf("IntelQaSymClose: dev %p, ctx %p, symCtx %p (src %p), symCtxSize %d, isCopy %d, isOpen %d, doFree %d\n",
+        dev, ctx, ctx->symCtx, ctx->symCtxSrc, ctx->symCtxSize, ctx->isCopy, ctx->isOpen, doFree);
 #endif
 
-    if (ctx->symCtx == ctx->symCtxSrc) {
+    if (ctx->symCtx == ctx->symCtxSrc && ctx->symCtx != NULL) {
         if (ctx->isOpen) {
             ctx->isOpen = 0;
         #ifdef QAT_DEBUG
@@ -2842,7 +2843,7 @@ int IntelQaEcdsaVerify(WC_ASYNC_DEV* dev, WC_BIGINT* m,
     WC_BIGINT* r, WC_BIGINT* s,
     WC_BIGINT* a, WC_BIGINT* b,
     WC_BIGINT* q, WC_BIGINT* n,
-    WC_BIGINT* xg, WC_BIGINT* yg, int* stat)
+    WC_BIGINT* xg, WC_BIGINT* yg, int* pVerifyStatus)
 {
     int ret, retryCount = 0;
     CpaStatus status = CPA_STATUS_SUCCESS;
@@ -2878,7 +2879,7 @@ int IntelQaEcdsaVerify(WC_ASYNC_DEV* dev, WC_BIGINT* m,
     }
 
     /* store info needed for output */
-    dev->qat.op.ecc_verify.stat = stat;
+    dev->qat.op.ecc_verify.stat = pVerifyStatus;
     IntelQaOpInit(dev, IntelQaEcdsaVerifyFree);
 
     /* Perform ECDSA verify */
@@ -3342,8 +3343,13 @@ int IntelQaDrbg(WC_ASYNC_DEV* dev, byte* rngBuf, word32 rngSz)
     CpaFlatBuffer* pOut = NULL;
     word32 idx = 0, gen = 0;
 
-    if (dev == NULL || rngBuf == NULL || rngSz == 0) {
+    if (dev == NULL || rngBuf == NULL) {
         return BAD_FUNC_ARG;
+    }
+
+    /* This function can be called with rngSz == 0 */
+    if (rngSz == 0) {
+        return 0; /* no data to get */
     }
 
 #ifdef QAT_DEBUG
