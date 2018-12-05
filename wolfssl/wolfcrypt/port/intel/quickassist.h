@@ -41,6 +41,18 @@
 #include <string.h>
 #include <errno.h>
 
+
+/* Detect QAT driver version */
+#if defined(CPA_CY_API_VERSION_NUM_MAJOR) && CPA_CY_API_VERSION_NUM_MAJOR > 1
+    #define QAT_V2
+#endif
+
+#ifdef QAT_V2
+    /* quickassist/utilities/libusdm_drv/qae_mem.h */
+    /* Provides user-space API's for accessing NUMA allocated memory through usdm_drv */
+    #include "qae_mem.h"
+#endif
+
 #ifdef QAT_USE_POLLING_THREAD
     #include <pthread.h>
 #endif
@@ -92,6 +104,10 @@
     #define QAT_ENABLE_PKI
 #endif
 
+/* QAT 1.7 does not support NRBG or DRBG */
+#if !defined(QAT_V2) && !defined(NO_QAT_RNG)
+    #define QAT_ENABLE_RNG
+#endif
 
 /* Pre-declarations */
 struct WC_ASYNC_DEV;

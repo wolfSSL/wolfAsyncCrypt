@@ -34,6 +34,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* use thread local for QAE variables (removing mutex requirement) */
+#ifdef USE_QAE_THREAD_LS
+    #include <pthread.h> /* for threadId tracking */
+    #define QAE_THREAD_LS THREAD_LS_T
+#else
+    #define QAE_THREAD_LS
+#endif
+
+/* these are used to align memory to a byte boundary */
+#define ALIGNMENT_BASE     (16ul)
+#define ALIGNMENT_HW       (64ul)
+#define WOLF_MAGIC_NUM      0xA576F6C6641736EBUL /* (0xA)WolfAsyn(0xB) */
+#define WOLF_HEADER_ALIGN   ALIGNMENT_BASE
+
+#ifndef QAT_V2
 #include <ctype.h>
 #include <sys/types.h>
 #include <dirent.h>
@@ -41,7 +57,7 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <pthread.h>
+
 #ifdef SAL_IOMMU_CODE
     #include <icp_sal_iommu.h>
 #endif
@@ -55,18 +71,6 @@
     #define MEM_INVALID_IDX -1
 #endif
 
-/* use thread local for QAE variables (removing mutex requirement) */
-#ifdef USE_QAE_THREAD_LS
-    #include <pthread.h> /* for threadId tracking */
-    #define QAE_THREAD_LS THREAD_LS_T
-#else
-    #define QAE_THREAD_LS
-#endif
-
-/* these are used to align memory to a byte boundary */
-#define ALIGNMENT_BASE     (16ul)
-#define ALIGNMENT_HW       (64ul)
-
 #define QAE_MEM             "/dev/qae_mem"
 #define PAGE_SHIFT          13
 #define PAGE_SIZE           (1UL << PAGE_SHIFT)
@@ -76,8 +80,6 @@
 #define SYSTEM_PAGE_MASK    (~(SYSTEM_PAGE_SIZE-1))
 #define USER_MEM_OFFSET     (128)
 #define QAEM_MAGIC_NUM      0xABCD12345678ECDFUL
-#define WOLF_MAGIC_NUM      0xA576F6C6641736EBUL /* (0xA)WolfAsyn(0xB) */
-#define WOLF_HEADER_ALIGN   ALIGNMENT_BASE
 
 /* define types which need to vary between 32 and 64 bit */
 #ifdef __x86_64__
@@ -153,6 +155,9 @@ typedef struct qae_dev_mem_info_s {
 
 #pragma pack(pop)
 
+#endif /* QAT_V2 */
+
+
 #define QAE_NOT_NUMA_PAGE 0xFFFF
 typedef struct qaeMemHeader {
 #ifdef WOLFSSL_TRACK_MEMORY
@@ -197,6 +202,7 @@ typedef struct qaeMemHeader {
     static pthread_mutex_t g_memLock = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
+#ifndef QAT_V2
 #ifdef USE_QAE_STATIC_MEM
     /* Use an array instead of a list */
     static QAE_THREAD_LS qae_dev_mem_info_ex_t* g_pUserMemList[QAE_USER_MEM_MAX_COUNT];
@@ -211,6 +217,8 @@ typedef struct qaeMemHeader {
 #endif
 
 static int g_qaeMemFd = -1;
+#endif /* !QAT_V2 */
+
 #ifdef WOLFSSL_TRACK_MEMORY
     static qaeMemStats g_memStats;
     static qaeMemList g_memList;
@@ -218,9 +226,11 @@ static int g_qaeMemFd = -1;
 #endif
 
 /* forward declarations */
+#ifndef QAT_V2
 static void* qaeMemAllocNUMA(Cpa32U size, Cpa32U node, Cpa32U alignment,
     word16* p_page_offset);
 static void qaeMemFreeNUMA(void** ptr, word16 page_offset);
+#endif
 
 static WC_INLINE int qaeMemTypeIsNuma(int type)
 {
@@ -342,7 +352,11 @@ static void _qaeMemFree(void *ptr, void* heap, int type
 
     /* free type */
     if (header->numa_page_offset != QAE_NOT_NUMA_PAGE) {
+    #ifdef QAT_V2
+        qaeMemFreeNUMA(&ptr);
+    #else
         qaeMemFreeNUMA(&ptr, header->numa_page_offset);
+    #endif
     }
     else {
         free(ptr);
@@ -374,8 +388,14 @@ static void* _qaeMemAlloc(size_t size, void* heap, int type
     /* allocate type */
     if (isNuma) {
         /* Node is typically 0 */
+    #ifdef QAT_V2
+        page_offset = 0;
+        ptr = qaeMemAllocNUMA((Cpa32U)(size + sizeof(qaeMemHeader)), 0,
+            alignment);
+    #else
         ptr = qaeMemAllocNUMA((Cpa32U)(size + sizeof(qaeMemHeader)), 0,
             alignment, &page_offset);
+    #endif
     }
     if (ptr == NULL) {
         isNuma = 0;
@@ -607,7 +627,7 @@ void* IntelQaRealloc(void *ptr, size_t size, void* heap, int type
 
 
 #ifdef WOLFSSL_TRACK_MEMORY
-static int _InitMemoryTracker(void)
+int InitMemoryTracker(void)
 {
     if (pthread_mutex_lock(&g_memStatLock) == 0) {
         g_memStats.totalAllocs  = 0;
@@ -624,13 +644,7 @@ static int _InitMemoryTracker(void)
     return 0;
 }
 
-int InitMemoryTracker(void)
-{
-    /* stub, called in qaeMemInit */
-    return 0;
-}
-
-static void _ShowMemoryTracker(void)
+void ShowMemoryTracker(void)
 {
     if (pthread_mutex_lock(&g_memStatLock) == 0) {
         printf("total   Allocs = %9ld\n", g_memStats.totalAllocs);
@@ -664,11 +678,6 @@ static void _ShowMemoryTracker(void)
         pthread_mutex_destroy(&g_memStatLock);
     }
 }
-
-void ShowMemoryTracker(void)
-{
-    /* stub, called in qaeMemDestroy */
-}
 #endif /* WOLFSSL_TRACK_MEMORY */
 
 
@@ -676,18 +685,19 @@ void ShowMemoryTracker(void)
 /**************************************
  * Memory functions
  *************************************/
+
+#ifndef QAT_V2
+
 CpaStatus qaeMemInit(void)
 {
     if (g_qaeMemFd < 0) {
-    #ifdef WOLFSSL_TRACK_MEMORY
-        _InitMemoryTracker();
-    #endif
-
+    #ifndef QAT_V2
         g_qaeMemFd = open(QAE_MEM, O_RDWR);
         if (g_qaeMemFd < 0) {
             printf("unable to open %s %d\n", QAE_MEM, g_qaeMemFd);
             return CPA_STATUS_FAIL;
         }
+    #endif
     }
 
     return CPA_STATUS_SUCCESS;
@@ -697,10 +707,6 @@ void qaeMemDestroy(void)
 {
     close(g_qaeMemFd);
     g_qaeMemFd = -1;
-
-#ifdef WOLFSSL_TRACK_MEMORY
-    _ShowMemoryTracker();
-#endif
 }
 
 #ifdef USE_QAE_STATIC_MEM
@@ -1089,5 +1095,6 @@ QAE_PHYS_ADDR qaeVirtToPhysNUMA(void* pVirtAddress)
 
      return (QAE_PHYS_ADDR)(pMemInfo->phy_addr + offset);
 }
+#endif /* !QAT_V2 */
 
 #endif /* HAVE_INTEL_QA */

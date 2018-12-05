@@ -54,7 +54,9 @@
 
 #include "icp_sal_user.h"
 #include "icp_sal_poll.h"
+#ifndef QAT_V2
 #include "icp_sal_drbg_impl.h"
+#endif
 
 #ifdef USE_LAC_SESSION_FOR_STRUCT_OFFSET
     #include "lac_session.h"
@@ -100,7 +102,9 @@ static pthread_mutex_t g_Hwlock = PTHREAD_MUTEX_INITIALIZER;
 #if defined(QAT_ENABLE_CRYPTO) || defined(QAT_ENABLE_HASH)
     static int IntelQaSymClose(WC_ASYNC_DEV* dev, int doFree);
 #endif
+#if defined(QAT_ENABLE_RNG)
 static int IntelQaDrbgClose(WC_ASYNC_DEV* dev);
+#endif
 
 extern Cpa32U osalLogLevelSet(Cpa32U level);
 
@@ -585,9 +589,11 @@ void IntelQaClose(WC_ASYNC_DEV* dev)
             IntelQaSymClose(dev, 1);
         }
     #endif
+    #if defined(QAT_ENABLE_RNG)
         if (dev->marker == WOLFSSL_ASYNC_MARKER_RNG) {
             IntelQaDrbgClose(dev);
         }
+    #endif
 
     #ifdef QAT_USE_POLLING_THREAD
         IntelQaStopPollingThread(dev);
@@ -1375,7 +1381,7 @@ static int IntelQaSymOpen(WC_ASYNC_DEV* dev, CpaCySymSessionSetupData* setup,
         printf("IntelQaSymOpen: InitSession dev %p, symCtx %p\n", dev, ctx->symCtx);
     #endif
 
-        /* open symetric session */
+        /* open symmetric session */
         status = cpaCySymInitSession(dev->qat.handle, callback, setup, ctx->symCtx);
         if (status != CPA_STATUS_SUCCESS) {
             printf("cpaCySymInitSession failed! dev %p, status %d\n", dev, status);
@@ -1903,6 +1909,10 @@ static int IntelQaSymHashGetInfo(CpaCySymHashAlgorithm hashAlgorithm,
         case CPA_CY_SYM_HASH_AES_CMAC:
         case CPA_CY_SYM_HASH_AES_GMAC:
         case CPA_CY_SYM_HASH_AES_CBC_MAC:
+    #ifdef QAT_V2
+        case CPA_CY_SYM_HASH_ZUC_EIA3:
+        case CPA_CY_SYM_HASH_SHA3_256:
+    #endif
         default:
             return -1;
     }
@@ -3178,6 +3188,7 @@ exit:
 #endif /* !NO_DH */
 
 
+#if defined(QAT_ENABLE_RNG)
 /* -------------------------------------------------------------------------- */
 /* Random NRBG/DRBG */
 /* -------------------------------------------------------------------------- */
@@ -3456,7 +3467,7 @@ exit:
 
     return ret;
 }
-
+#endif /* QAT_ENABLE_RNG */
 
 #ifdef QAT_DEMO_MAIN
 
