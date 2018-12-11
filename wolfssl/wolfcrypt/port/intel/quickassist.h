@@ -148,7 +148,13 @@ typedef struct IntelQaDev {
     /* operations */
     IntelQaFreeFunc freeFunc;
     union {
-    #ifndef NO_RSA
+    #if defined(QAT_ENABLE_PKI) && !defined(NO_RSA)
+        struct {
+            CpaCyRsaKeyGenOpData opData;
+            CpaCyRsaPrivateKey privateKey;
+            CpaCyRsaPublicKey publicKey;
+            struct RsaKey* rsakey;
+        } rsa_keygen;
         struct {
             CpaCyRsaDecryptOpData opData;
             CpaCyRsaPrivateKey privateKey;
@@ -173,15 +179,15 @@ typedef struct IntelQaDev {
             word32 authTagSz;
         } cipher;
     #endif
-#ifdef HAVE_ECC
-    #ifdef HAVE_ECC_DHE
+    #if defined(QAT_ENABLE_PKI) && defined(HAVE_ECC)
+        #ifdef HAVE_ECC_DHE
         struct {
             CpaCyEcdhPointMultiplyOpData opData;
             CpaFlatBuffer pXk;
             CpaFlatBuffer pYk;
         } ecc_ecdh;
-    #endif
-    #ifdef HAVE_ECC_SIGN
+        #endif
+        #ifdef HAVE_ECC_SIGN
         struct {
             CpaCyEcdsaSignRSOpData opData;
             CpaFlatBuffer R;
@@ -190,14 +196,14 @@ typedef struct IntelQaDev {
             struct WC_BIGINT* pR;
             struct WC_BIGINT* pS;
         } ecc_sign;
-    #endif
-    #ifdef HAVE_ECC_VERIFY
+        #endif
+        #ifdef HAVE_ECC_VERIFY
         struct {
             CpaCyEcdsaVerifyOpData opData;
             int* stat;
         } ecc_verify;
-    #endif
-#endif
+        #endif
+    #endif /* HAVE_ECC */
     #ifdef QAT_ENABLE_HASH
         struct {
             IntelQaSymCtx ctx;
@@ -211,7 +217,7 @@ typedef struct IntelQaDev {
             word32 buffersSz[MAX_QAT_HASH_BUFFERS];
         } hash;
     #endif
-    #ifndef NO_DH
+    #if defined(QAT_ENABLE_PKI) && !defined(NO_DH)
         struct {
             CpaCyDhPhase1KeyGenOpData opData;
             CpaFlatBuffer pOut;
@@ -221,11 +227,13 @@ typedef struct IntelQaDev {
             CpaFlatBuffer pOut;
         } dh_agree;
     #endif
+    #ifdef QAT_ENABLE_RNG
         struct {
             CpaCyDrbgGenOpData opData;
             CpaCyDrbgSessionHandle handle;
             CpaFlatBuffer pOut;
         } drbg;
+    #endif
     } op;
 
 #ifdef QAT_USE_POLLING_THREAD
@@ -254,6 +262,9 @@ WOLFSSL_LOCAL int IntelQaPoll(struct WC_ASYNC_DEV* dev);
 WOLFSSL_LOCAL int IntelQaGetCyInstanceCount(void);
 
 #ifndef NO_RSA
+    WOLFSSL_LOCAL int IntelQaRsaKeyGen(struct WC_ASYNC_DEV* dev,
+                            struct RsaKey* key, int keyBits, struct WC_BIGINT* p,
+                            struct WC_BIGINT* q, struct WC_BIGINT* e);
     WOLFSSL_LOCAL int IntelQaRsaPrivate(struct WC_ASYNC_DEV* dev,
                             const byte* in, word32 inLen,
                             struct WC_BIGINT* d, struct WC_BIGINT* n,

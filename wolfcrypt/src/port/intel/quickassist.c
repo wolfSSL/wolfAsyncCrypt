@@ -70,14 +70,35 @@
 #endif
 
 /* Async enables (1=non-block, 0=block) */
-#define QAT_RSA_ASYNC       1
-#define QAT_EXPTMOD_ASYNC   1
-#define QAT_CIPHER_ASYNC    1
-#define QAT_HASH_ASYNC      0
-#define QAT_ECDSA_ASYNC     1
-#define QAT_ECDHE_ASYNC     1
-#define QAT_DH_ASYNC        1
-#define QAT_DRBG_ASYNC      0
+#ifndef QAT_RSA_ASYNC
+#define QAT_RSA_ASYNC        1
+#endif
+#ifndef QAT_EXPTMOD_ASYNC
+#define QAT_EXPTMOD_ASYNC    1
+#endif
+#ifndef QAT_CIPHER_ASYNC
+#define QAT_CIPHER_ASYNC     1
+#endif
+#ifndef QAT_ECDSA_ASYNC
+#define QAT_ECDSA_ASYNC      1
+#endif
+#ifndef QAT_ECDHE_ASYNC
+#define QAT_ECDHE_ASYNC      1
+#endif
+#ifndef QAT_DH_ASYNC
+#define QAT_DH_ASYNC         1
+#endif
+
+/* KeyGen, Hash and Drbg do not support async in wolfSSL/wolfCrypt */
+#ifndef QAT_RSA_KEYGEN_ASYNC
+#define QAT_RSA_KEYGEN_ASYNC 0
+#endif
+#ifndef QAT_HASH_ASYNC
+#define QAT_HASH_ASYNC       0
+#endif
+#ifndef QAT_DRBG_ASYNC
+#define QAT_DRBG_ASYNC       0
+#endif
 
 #define OS_HOST_TO_NW_32(uData) ByteReverseWord32(uData)
 
@@ -158,7 +179,25 @@ static void IntelQaStopPollingThread(WC_ASYNC_DEV* dev)
 /* -------------------------------------------------------------------------- */
 /* Buffer Helpers */
 /* -------------------------------------------------------------------------- */
-#if defined(HAVE_ECC) || !defined(NO_DH)
+#if defined(HAVE_ECC) || !defined(NO_DH) || !defined(NO_RSA)
+static WC_INLINE int IntelQaAllocFlatBuffer(CpaFlatBuffer* buf, int size, void* heap)
+{
+    if (buf == NULL || size <= 0)
+        return BAD_FUNC_ARG;
+    buf->pData = (byte*)XMALLOC(size, heap, DYNAMIC_TYPE_ASYNC_NUMA);
+    if (buf->pData == NULL)
+        return MEMORY_E;
+    buf->dataLenInBytes = size;
+    return 0;
+}
+static WC_INLINE void IntelQaFreeFlatBuffer(CpaFlatBuffer* buf, void* heap)
+{
+    if (buf && buf->pData) {
+        XFREE(buf->pData, heap, DYNAMIC_TYPE_ASYNC_NUMA);
+        buf->pData = NULL;
+        buf->dataLenInBytes = 0;
+    }
+}
 static WC_INLINE int IntelQaBigIntToFlatBuffer(WC_BIGINT* src, CpaFlatBuffer* dst)
 {
     if (src == NULL || src->buf == NULL || dst == NULL) {
@@ -800,6 +839,223 @@ static WC_INLINE void IntelQaOpInit(WC_ASYNC_DEV* dev, IntelQaFreeFunc freeFunc)
 
 #ifndef NO_RSA
 
+static void IntelQaRsaKeyGenFree(WC_ASYNC_DEV* dev)
+{
+    /* free on failures only */
+    if (dev->qat.ret != 0) {
+        CpaCyRsaKeyGenOpData* opData = &dev->qat.op.rsa_keygen.opData;
+        CpaCyRsaPrivateKey* privateKey = &dev->qat.op.rsa_keygen.privateKey;
+        CpaCyRsaPublicKey* publicKey = &dev->qat.op.rsa_keygen.publicKey;
+
+        IntelQaFreeFlatBuffer(&publicKey->modulusN, dev->heap);
+        IntelQaFreeFlatBuffer(&publicKey->publicExponentE, dev->heap);
+
+        IntelQaFreeFlatBuffer(&privateKey->privateKeyRep1.privateExponentD, dev->heap);
+        IntelQaFreeFlatBuffer(&privateKey->privateKeyRep1.modulusN, dev->heap);
+        IntelQaFreeFlatBuffer(&privateKey->privateKeyRep2.prime1P, dev->heap);
+        IntelQaFreeFlatBuffer(&privateKey->privateKeyRep2.prime2Q, dev->heap);
+        IntelQaFreeFlatBuffer(&privateKey->privateKeyRep2.exponent1Dp, dev->heap);
+        IntelQaFreeFlatBuffer(&privateKey->privateKeyRep2.exponent2Dq, dev->heap);
+        IntelQaFreeFlatBuffer(&privateKey->privateKeyRep2.coefficientQInv, dev->heap);
+
+        (void)opData;
+    }
+}
+
+static void IntelQaRsaKeyGenCallback(void *pCallbackTag,
+        CpaStatus status, void *pKeyGenOpData, CpaCyRsaPrivateKey *pPrivateKey,
+        CpaCyRsaPublicKey *pPublicKey)
+{
+    WC_ASYNC_DEV* dev = (WC_ASYNC_DEV*)pCallbackTag;
+    CpaCyRsaKeyGenOpData* opData = (CpaCyRsaKeyGenOpData*)pKeyGenOpData;
+    int ret = ASYNC_OP_E;
+
+#ifdef QAT_DEBUG
+    printf("IntelQaRsaKeyGenCallback: dev %p, status %d\n", dev, status);
+#endif
+
+    if (status == CPA_STATUS_SUCCESS) {
+        RsaKey* key = dev->qat.op.rsa_keygen.rsakey;
+        if (key) {
+            /* Populate RsaKey Parameters */
+            /* raw BigInt buffer ownership is transfered to RsaKey */
+            /* cleanup is handled in wc_FreeRsaKey */
+
+            /* modulusN */
+            ret = IntelQaFlatBufferToBigInt(
+                    &pPublicKey->modulusN, &key->n.raw);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(&key->n,
+                    key->n.raw.buf, key->n.raw.len);
+
+            /* publicExponentE */
+            if (ret == 0)
+                ret = IntelQaFlatBufferToBigInt(
+                    &pPublicKey->publicExponentE, &key->e.raw);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(&key->e,
+                    key->e.raw.buf, key->e.raw.len);
+
+            /* privateExponentD */
+            if (ret == 0)
+                ret = IntelQaFlatBufferToBigInt(
+                    &pPrivateKey->privateKeyRep1.privateExponentD, &key->d.raw);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(&key->d,
+                    key->d.raw.buf, key->d.raw.len);
+
+            /* prime1P */
+            if (ret == 0)
+                ret = IntelQaFlatBufferToBigInt(
+                    &pPrivateKey->privateKeyRep2.prime1P, &key->p.raw);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(&key->p,
+                    key->p.raw.buf, key->p.raw.len);
+
+            /* prime2Q */
+            if (ret == 0)
+                ret = IntelQaFlatBufferToBigInt(
+                    &pPrivateKey->privateKeyRep2.prime2Q, &key->q.raw);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(&key->q,
+                    key->q.raw.buf, key->q.raw.len);
+
+            /* exponent1Dp */
+            if (ret == 0)
+                ret = IntelQaFlatBufferToBigInt(
+                    &pPrivateKey->privateKeyRep2.exponent2Dq, &key->dP.raw);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(&key->dP,
+                    key->dP.raw.buf, key->dP.raw.len);
+
+            /* exponent2Dq */
+            if (ret == 0)
+                ret = IntelQaFlatBufferToBigInt(
+                    &pPrivateKey->privateKeyRep2.exponent1Dp, &key->dQ.raw);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(&key->dQ,
+                    key->dQ.raw.buf, key->dQ.raw.len);
+
+            /* coefficientQInv */
+            if (ret == 0)
+                ret = IntelQaFlatBufferToBigInt(
+                    &pPrivateKey->privateKeyRep2.coefficientQInv, &key->u.raw);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(&key->u,
+                    key->u.raw.buf, key->u.raw.len);
+        }
+    }
+    (void)opData;
+
+    /* set return code to mark complete */
+    dev->qat.ret = ret;
+}
+
+int IntelQaRsaKeyGen(WC_ASYNC_DEV* dev, RsaKey* key, int keyBits, WC_BIGINT* p,
+    WC_BIGINT* q, WC_BIGINT* e)
+{
+    int ret = 0, retryCount = 0;
+    CpaStatus status = CPA_STATUS_SUCCESS;
+    CpaCyRsaKeyGenOpData* opData = NULL;
+    CpaCyRsaPrivateKey* privateKey = NULL;
+    CpaCyRsaPublicKey* publicKey = NULL;
+    CpaCyRsaKeyGenCbFunc callback = IntelQaRsaKeyGenCallback;
+    int keySz = keyBits/8;
+
+    if (dev == NULL || key == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+#ifdef QAT_DEBUG
+    printf("IntelQaRsaKeyGen: dev %p, keyBits %d\n", dev, keyBits);
+#endif
+
+    /* setup operation */
+    opData = &dev->qat.op.rsa_keygen.opData;
+    publicKey = &dev->qat.op.rsa_keygen.publicKey;
+    privateKey = &dev->qat.op.rsa_keygen.privateKey;
+
+    /* init variables */
+    XMEMSET(opData, 0, sizeof(CpaCyRsaDecryptOpData));
+    XMEMSET(publicKey, 0, sizeof(CpaCyRsaPublicKey));
+    XMEMSET(privateKey, 0, sizeof(CpaCyRsaPrivateKey));
+
+    /* setup private key */
+    privateKey->version = CPA_CY_RSA_VERSION_TWO_PRIME;
+    privateKey->privateKeyRepType = CPA_CY_RSA_PRIVATE_KEY_REP_TYPE_2;
+    ret  = IntelQaAllocFlatBuffer(&privateKey->privateKeyRep1.modulusN,
+        keySz, dev->heap);
+    ret += IntelQaAllocFlatBuffer(&privateKey->privateKeyRep1.privateExponentD,
+        keySz, dev->heap);
+    ret += IntelQaAllocFlatBuffer(&privateKey->privateKeyRep2.exponent1Dp,
+        keySz/2, dev->heap);
+    ret += IntelQaAllocFlatBuffer(&privateKey->privateKeyRep2.exponent2Dq,
+        keySz/2, dev->heap);
+    ret += IntelQaAllocFlatBuffer(&privateKey->privateKeyRep2.coefficientQInv,
+        keySz/2, dev->heap);
+    if (ret != 0) {
+        ret = MEMORY_E; goto exit;
+    }
+
+    /* setup public key */
+    ret  = IntelQaAllocFlatBuffer(&publicKey->modulusN, keySz, dev->heap);
+    if (ret != 0) {
+        ret = MEMORY_E; goto exit;
+    }
+
+    /* populate 2 primes (P/Q) and exponent from input */
+    ret  = IntelQaBigIntToFlatBuffer(p, &privateKey->privateKeyRep2.prime1P);
+    ret += IntelQaBigIntToFlatBuffer(q, &privateKey->privateKeyRep2.prime2Q);
+    ret += IntelQaBigIntToFlatBuffer(e, &publicKey->publicExponentE);
+    if (ret != 0) {
+        ret = MEMORY_E; goto exit;
+    }
+    /* transfer buffer ownership to flat buffer */
+    p->buf = NULL; p->len = 0;
+    q->buf = NULL; q->len = 0;
+    e->buf = NULL; e->len = 0;
+
+    /* setup operation data */
+    opData->version = CPA_CY_RSA_VERSION_TWO_PRIME;
+    opData->privateKeyRepType = CPA_CY_RSA_PRIVATE_KEY_REP_TYPE_2;
+    opData->modulusLenInBytes = keySz;
+    opData->prime1P = privateKey->privateKeyRep2.prime1P;
+    opData->prime2Q = privateKey->privateKeyRep2.prime2Q;
+    opData->publicExponentE = publicKey->publicExponentE;
+
+    /* parameters required for output callback */
+    dev->qat.op.rsa_keygen.rsakey = key;
+    IntelQaOpInit(dev, IntelQaRsaKeyGenFree);
+
+    /* perform RSA key generation */
+    do {
+        status = cpaCyRsaGenKey(dev->qat.handle,
+                                callback,
+                                dev,
+                                opData,
+                                privateKey,
+                                publicKey);
+    } while (IntelQaHandleCpaStatus(dev, status, &ret, QAT_RSA_KEYGEN_ASYNC,
+        callback, &retryCount));
+
+    if (ret == WC_PENDING_E)
+        return ret;
+
+exit:
+
+    if (ret != 0) {
+        printf("cpaCyRsaGenKey failed! dev %p, status %d, ret %d\n",
+            dev, status, ret);
+
+        /* handle cleanup on failure only */
+        dev->qat.ret = ret;
+        IntelQaRsaKeyGenFree(dev);
+    }
+
+    return ret;
+}
+
+
 static void IntelQaRsaPrivateFree(WC_ASYNC_DEV* dev)
 {
     CpaCyRsaDecryptOpData* opData = &dev->qat.op.rsa_priv.opData;
@@ -810,8 +1066,9 @@ static void IntelQaRsaPrivateFree(WC_ASYNC_DEV* dev)
             XFREE(opData->inputData.pData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
             opData->inputData.pData = NULL;
         }
-
-        XMEMSET(opData->pRecipientPrivateKey, 0, sizeof(CpaCyRsaPrivateKey));
+        if (opData->pRecipientPrivateKey) {
+            XMEMSET(opData->pRecipientPrivateKey, 0, sizeof(CpaCyRsaPrivateKey));
+        }
         XMEMSET(opData, 0, sizeof(CpaCyRsaDecryptOpData));
     }
     if (outBuf) {
@@ -879,6 +1136,10 @@ int IntelQaRsaPrivate(WC_ASYNC_DEV* dev,
             outLen == NULL) {
         return BAD_FUNC_ARG;
     }
+
+#ifdef QAT_DEBUG
+    printf("IntelQaRsaPrivate: dev %p, in %p (%d), out %p\n", dev, in, inLen, out);
+#endif
 
 	/* setup operation */
 	opData = &dev->qat.op.rsa_priv.opData;
@@ -975,6 +1236,10 @@ int IntelQaRsaCrtPrivate(WC_ASYNC_DEV* dev,
             outLen == NULL) {
         return BAD_FUNC_ARG;
     }
+
+#ifdef QAT_DEBUG
+    printf("IntelQaRsaCrtPrivate: dev %p, in %p (%d), out %p\n", dev, in, inLen, out);
+#endif
 
     /* setup operation */
     opData = &dev->qat.op.rsa_priv.opData;
@@ -1132,6 +1397,10 @@ int IntelQaRsaPublic(WC_ASYNC_DEV* dev,
         return BAD_FUNC_ARG;
     }
 
+#ifdef QAT_DEBUG
+    printf("IntelQaRsaPublic: dev %p, in %p (%d), out %p\n", dev, in, inLen, out);
+#endif
+
 	/* setup operation */
 	opData = &dev->qat.op.rsa_pub.opData;
     outBuf = &dev->qat.op.rsa_pub.outBuf;
@@ -1274,6 +1543,11 @@ int IntelQaRsaExptMod(WC_ASYNC_DEV* dev,
     if (dev == NULL || in == NULL || inLen == 0 || out == NULL) {
         return BAD_FUNC_ARG;
     }
+
+#ifdef QAT_DEBUG
+    printf("IntelQaRsaExptMod: dev %p, in %p (%d), out %p\n",
+        dev, in, inLen, out);
+#endif
 
     /* setup operation */
     opData = &dev->qat.op.rsa_modexp.opData;
