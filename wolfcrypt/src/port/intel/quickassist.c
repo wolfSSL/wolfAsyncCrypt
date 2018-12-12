@@ -1015,7 +1015,8 @@ int IntelQaGenPrime(WC_ASYNC_DEV* dev, WC_RNG* rng, byte* primeBuf,
                 primeData[byteCheck] += 2;
             }
             else {
-                /* rollover occurred and we need to increment high order bytes */
+                /* if rollover occurred increment high order bytes */
+                /* increment by 1 does not affect odd/even */
                 int j;
                 for (j = primeSz - 2; j >= 0; j--) {
                     if (primeData[i] != 0xFF) {
@@ -1029,11 +1030,30 @@ int IntelQaGenPrime(WC_ASYNC_DEV* dev, WC_RNG* rng, byte* primeBuf,
             }
         }
 
-    #if 0
-        /* TODO: */
-        /* make sure miller rabbin is less than smallest candidate */
-    #endif
+        /* make sure miller rabbin must be less than prime candidate */
+        for (i = 0; i < QAT_PRIME_GEN_MR_ROUNDS; i++) {
+            byte* mrData = pMillerRabinData + (i * primeSz);
+            int j;
+            for (j = 0; j < (int)primeSz; j++) {
+                /* if primeData is less then mrData, and primeData is not 0,
+                 * then make mrData to be smaller than primeData, and we are done */
+                if ((primeData[j] <= mrData[j]) && primeData[j] != 0) {
+                    mrData[j] = primeData[j] - 1;
+                    break;
+                }
+                /* if primeData is 0 then mrData needs to be zero and we check
+                 * the next index */
+                else if (primeData[j] == 0) {
+                    mrData[j] = 0;
+                }
+                /* primeData is smaller than mrData so we are done */
+                else {
+                    break;
+                }
+            }
+        }
 
+        /* setup and run prime tests */
         XMEMSET(dev->qat.op.prime_gen.testStatus, 0,
             sizeof(dev->qat.op.prime_gen.testStatus));
         retryCount = 0;
@@ -1110,6 +1130,10 @@ int IntelQaGenPrime(WC_ASYNC_DEV* dev, WC_RNG* rng, byte* primeBuf,
             ret = ASYNC_OP_E;
             break; /* done with failure */
         }
+
+    #ifdef QAT_DEBUG
+        printf("cpaCyPrimeTest attempt %d\n", attempt);
+    #endif
     } /* for (attempt) */
 
 exit:
