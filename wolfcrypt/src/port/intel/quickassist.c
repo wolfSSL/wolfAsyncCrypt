@@ -89,10 +89,7 @@
 #define QAT_DH_ASYNC         1
 #endif
 
-/* KeyGen, Hash and Drbg do not support async in wolfSSL/wolfCrypt */
-#ifndef QAT_RSA_KEYGEN_ASYNC
-#define QAT_RSA_KEYGEN_ASYNC 0
-#endif
+/* Hash and Drbg do not support async in wolfSSL/wolfCrypt */
 #ifndef QAT_HASH_ASYNC
 #define QAT_HASH_ASYNC       0
 #endif
@@ -839,9 +836,299 @@ static WC_INLINE void IntelQaOpInit(WC_ASYNC_DEV* dev, IntelQaFreeFunc freeFunc)
 
 #ifndef NO_RSA
 
+#ifdef WOLFSSL_KEY_GEN
+static void IntelQaGenPrimeFree(WC_ASYNC_DEV* dev)
+{
+    CpaCyPrimeTestOpData* opData = dev->qat.op.prime_gen.opData;
+    CpaFlatBuffer* primeCandidates = dev->qat.op.prime_gen.primeCandidates;
+    byte* pMillerRabinData = dev->qat.op.prime_gen.pMillerRabinData;
+
+    if (opData) {
+        XFREE(opData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+        dev->qat.op.prime_gen.opData = NULL;
+    }
+    if (primeCandidates) {
+        int i;
+        for (i = 0; i < QAT_PRIME_GEN_TRIES; i++) {
+            if (primeCandidates[i].pData) {
+                XFREE(primeCandidates[i].pData, dev->heap,
+                    DYNAMIC_TYPE_ASYNC_NUMA);
+                primeCandidates[i].pData = NULL;
+                primeCandidates[i].dataLenInBytes = 0;
+            }
+        }
+        XFREE(primeCandidates, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+        dev->qat.op.prime_gen.primeCandidates = NULL;
+    }
+    if (pMillerRabinData) {
+        XFREE(pMillerRabinData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+        dev->qat.op.prime_gen.pMillerRabinData = NULL;
+    }
+}
+
+static void IntelQaGenPrimeCallback(void *pCallbackTag,
+    CpaStatus status, void *pOpData, CpaBoolean testPassed)
+{
+    WC_ASYNC_DEV* dev = (WC_ASYNC_DEV*)pCallbackTag;
+    CpaCyPrimeTestOpData* opData = (CpaCyPrimeTestOpData*)pOpData;
+    int opIndex = 0;
+    int testStatus = QAT_PRIME_CHK_STATUS_FAILED;
+
+    /* calculate index based on opDate pointer offset */
+    if (dev->qat.op.prime_gen.opData && opData) {
+        byte* srcop = (byte*)dev->qat.op.prime_gen.opData;
+        byte* curop = (byte*)opData;
+        size_t offset;
+        if (srcop <= curop) {
+            offset = (size_t)curop - (size_t)srcop;
+            offset /= sizeof(CpaCyPrimeTestOpData);
+            if (offset < QAT_PRIME_GEN_TRIES)
+                opIndex = (int)offset;
+        }
+    }
+
+#ifdef QAT_DEBUG
+    printf("IntelQaGenPrimeCallback: dev %p, opIndex %d, status %d, testPassed %d\n",
+        dev, opIndex, status, testPassed);
+#endif
+
+    if (status == CPA_STATUS_SUCCESS) {
+        testStatus = (testPassed == CPA_TRUE) ?
+            QAT_PRIME_CHK_STATUS_PASSED :
+            QAT_PRIME_CHK_STATUS_FAILED;
+    }
+
+    dev->qat.op.prime_gen.testStatus[opIndex] = testStatus;
+}
+
+#ifndef QAT_PRIME_CHECK_TIMEOUT
+    /* times to wait in retry for operations */
+    #define QAT_PRIME_CHECK_TIMEOUT 100000
+#endif
+int IntelQaGenPrime(WC_ASYNC_DEV* dev, WC_RNG* rng, byte* primeBuf,
+    word32 primeSz)
+{
+    int ret = 0, retryCount = 0, i, attempt;
+    CpaStatus status = CPA_STATUS_SUCCESS;
+    CpaCyPrimeTestOpData* opData = NULL;
+    CpaFlatBuffer* primeCandidates = NULL;
+    byte* pMillerRabinData = NULL;
+    CpaFlatBuffer millerRabins;
+    CpaCyPrimeTestCbFunc callback = IntelQaGenPrimeCallback;
+    CpaBoolean testPassed = CPA_FALSE;
+
+    if (dev == NULL || rng == NULL || primeBuf == NULL || primeSz < 64) {
+        return BAD_FUNC_ARG;
+    }
+
+#ifdef QAT_DEBUG
+    printf("IntelQaGenPrime: dev %p, sz %d\n", dev, primeSz);
+#endif
+
+    /* generate operation data and prime candidates */
+    opData = (CpaCyPrimeTestOpData*)XMALLOC(
+        sizeof(CpaCyPrimeTestOpData) * QAT_PRIME_GEN_TRIES,
+        dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+    dev->qat.op.prime_gen.opData = opData;
+    primeCandidates = (CpaFlatBuffer*)XMALLOC(
+        sizeof(CpaFlatBuffer) * QAT_PRIME_GEN_TRIES,
+        dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+    dev->qat.op.prime_gen.primeCandidates = primeCandidates;
+    if (opData == NULL || primeCandidates == NULL) {
+        ret = MEMORY_E; goto exit;
+    }
+    XMEMSET(opData, 0, sizeof(CpaCyPrimeTestOpData) * QAT_PRIME_GEN_TRIES);
+    XMEMSET(primeCandidates, 0, sizeof(CpaFlatBuffer) * QAT_PRIME_GEN_TRIES);
+    for (i = 0; i < QAT_PRIME_GEN_TRIES; i++) {
+        primeCandidates[i].pData = (byte*)XMALLOC(primeSz, dev->heap,
+            DYNAMIC_TYPE_ASYNC_NUMA);
+        if (primeCandidates[i].pData == NULL) {
+            ret = MEMORY_E; goto exit;
+        }
+        primeCandidates[i].dataLenInBytes = primeSz;
+    }
+
+    /* generate miller rabbin data */
+    pMillerRabinData = (byte*)XMALLOC(primeSz * QAT_PRIME_GEN_MR_ROUNDS,
+        dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+    dev->qat.op.prime_gen.pMillerRabinData = pMillerRabinData;
+    if (pMillerRabinData == NULL) {
+        ret = MEMORY_E; goto exit;
+    }
+
+    ret = wc_RNG_GenerateBlock(rng, pMillerRabinData,
+        primeSz * QAT_PRIME_GEN_MR_ROUNDS);
+    if (ret != 0)
+        goto exit;
+
+    /* make sure each miller rabbin number is greater than 1 */
+    for (i = 0; i < QAT_PRIME_GEN_MR_ROUNDS; i++) {
+        word32 byteCheck = primeSz - 1;
+        byte* round = &pMillerRabinData[i * primeSz];
+        if (round[byteCheck] <= 1) {
+            ret = wc_RNG_GenerateBlock(rng, &round[byteCheck], 1);
+            if (ret != 0)
+                goto exit;
+            if (round[byteCheck] <= 1)
+                round[byteCheck] += 2;
+        }
+    }
+    millerRabins.pData = pMillerRabinData;
+    millerRabins.dataLenInBytes = primeSz * QAT_PRIME_GEN_MR_ROUNDS;
+
+    /* populate operation data */
+    for (i = 0; i < QAT_PRIME_GEN_TRIES; i++) {
+        opData[i].primeCandidate = primeCandidates[i];
+        opData[i].performGcdTest = CPA_TRUE;
+        opData[i].performFermatTest = CPA_TRUE;
+        opData[i].numMillerRabinRounds = QAT_PRIME_GEN_MR_ROUNDS;
+        opData[i].millerRabinRandomInput = millerRabins;
+        opData[i].performLucasTest = CPA_TRUE;
+    }
+
+    /* store info needed for output */
+    dev->qat.out = primeBuf;
+    dev->qat.outLen = primeSz;
+    IntelQaOpInit(dev, IntelQaGenPrimeFree);
+
+    for (attempt = 0; attempt < QAT_PRIME_GEN_RETRIES; attempt++) {
+        int expectedDone, doneCount, primePassIndex, errorCount;
+        byte* primeData = primeCandidates[0].pData;
+        /* Generate primeCandidates */
+        ret = wc_RNG_GenerateBlock(rng, primeData, primeSz);
+        if (ret != 0)
+            goto exit;
+        /* prime lower bound has the MSB set, set it in candidate */
+        primeData[0] |= 0x80;
+        /* make candidate odd */
+        primeData[primeSz-1] |= 0x01;
+
+        /* create candidates that are incremented by two */
+        for (i = 1; i < QAT_PRIME_GEN_TRIES; i++) {
+            word32 byteCheck = primeSz - 1;
+            primeData = primeCandidates[i].pData;
+            XMEMCPY(primeData,
+                primeCandidates[i-1].pData,
+                primeCandidates[i-1].dataLenInBytes);
+
+            if (primeData[byteCheck] != 0xFF) {
+                primeData[byteCheck] += 2;
+            }
+            else {
+                /* rollover occurred and we need to increment high order bytes */
+                int j;
+                for (j = primeSz - 2; j >= 0; j--) {
+                    if (primeData[i] != 0xFF) {
+                        primeData[i] += 1;
+                        break;
+                    }
+                    else {
+                        primeData[i] = 0;
+                    }
+                }
+            }
+        }
+
+    #if 0
+        /* TODO: */
+        /* make sure miller rabbin is less than smallest candidate */
+    #endif
+
+        XMEMSET(dev->qat.op.prime_gen.testStatus, 0,
+            sizeof(dev->qat.op.prime_gen.testStatus));
+        retryCount = 0;
+        expectedDone = 0;
+        errorCount = 0;
+        for (i = 0; i < QAT_PRIME_GEN_TRIES; i++) {
+            /* perform prime test */
+            do {
+                status = cpaCyPrimeTest(dev->qat.handle,
+                                        callback,
+                                        dev,
+                                        &opData[i],
+                                        &testPassed);
+                if (status == CPA_STATUS_RETRY) {
+                    IntelQaPoll(dev);
+                }
+            } while (status == CPA_STATUS_RETRY &&
+                retryCount++ < QAT_PRIME_CHECK_TIMEOUT);
+
+            /* handle error */
+            if (status != CPA_STATUS_SUCCESS) {
+                errorCount++;
+                break;
+            }
+            expectedDone++;
+        }
+
+        /* use blocking polling, till all have completed */
+        retryCount = 0;
+        primePassIndex = -1;
+        do {
+            IntelQaPoll(dev);
+
+            /* tally results */
+            doneCount = 0;
+            for (i = 0; i < expectedDone; i++) {
+                byte* testStatus = &dev->qat.op.prime_gen.testStatus[i];
+                if (*testStatus != QAT_PRIME_CHK_STATUS_INIT) {
+                    doneCount++;
+                    /* Track index of first passed operation */
+                    if (primePassIndex == -1 &&
+                             *testStatus == QAT_PRIME_CHK_STATUS_PASSED)
+                        primePassIndex = i;
+                    else if (*testStatus == QAT_PRIME_CHK_STATUS_ERROR)
+                        errorCount++;
+                }
+            }
+
+            /* determine if all prime tests are done */
+            if (doneCount == expectedDone) {
+                break;
+            }
+
+        #ifndef WC_NO_ASYNC_THREADING
+            wc_AsyncThreadYield();
+        #endif
+        } while (retryCount++ < QAT_PRIME_CHECK_TIMEOUT);
+        if (retryCount == QAT_PRIME_CHECK_TIMEOUT) {
+        #ifdef QAT_DEBUG
+            printf("cpaCyPrimeTest wait timeout! dev %p\n", dev);
+        #endif
+            errorCount++;
+        }
+
+        /* check if we found a prime */
+        if (primePassIndex != -1 && primePassIndex < QAT_PRIME_GEN_TRIES) {
+            ret = 0;
+            XMEMCPY(primeBuf, primeCandidates[primePassIndex].pData, primeSz);
+            break; /* done with success */
+        }
+
+        /* handle failure */
+        if (errorCount != 0) {
+            ret = ASYNC_OP_E;
+            break; /* done with failure */
+        }
+    } /* for (attempt) */
+
+exit:
+
+    if (ret != 0) {
+        printf("cpaCyPrimeTest failed! dev %p, status %d, ret %d\n",
+            dev, status, ret);
+    }
+
+    IntelQaGenPrimeFree(dev);
+
+    return ret;
+}
+
+
 static void IntelQaRsaKeyGenFree(WC_ASYNC_DEV* dev)
 {
     /* free on failures only */
+    /* ownership of these buffers goes to RsaKey */
     if (dev->qat.ret != 0) {
         CpaCyRsaKeyGenOpData* opData = &dev->qat.op.rsa_keygen.opData;
         CpaCyRsaPrivateKey* privateKey = &dev->qat.op.rsa_keygen.privateKey;
@@ -943,6 +1230,10 @@ static void IntelQaRsaKeyGenCallback(void *pCallbackTag,
             if (ret == 0)
                 ret = mp_read_unsigned_bin(&key->u,
                     key->u.raw.buf, key->u.raw.len);
+
+            /* mark as private key */
+            if (ret == 0)
+                key->type = RSA_PRIVATE;
         }
     }
     (void)opData;
@@ -951,16 +1242,19 @@ static void IntelQaRsaKeyGenCallback(void *pCallbackTag,
     dev->qat.ret = ret;
 }
 
-int IntelQaRsaKeyGen(WC_ASYNC_DEV* dev, RsaKey* key, int keyBits, WC_BIGINT* p,
-    WC_BIGINT* q, WC_BIGINT* e)
+int IntelQaRsaKeyGen(WC_ASYNC_DEV* dev, RsaKey* key, int keyBits, long e,
+    WC_RNG* rng)
 {
     int ret = 0, retryCount = 0;
     CpaStatus status = CPA_STATUS_SUCCESS;
+    CpaFlatBuffer prime1P;
+    CpaFlatBuffer prime2Q;
     CpaCyRsaKeyGenOpData* opData = NULL;
     CpaCyRsaPrivateKey* privateKey = NULL;
     CpaCyRsaPublicKey* publicKey = NULL;
     CpaCyRsaKeyGenCbFunc callback = IntelQaRsaKeyGenCallback;
     int keySz = keyBits/8;
+    int primeSz = keySz/2; /* P & Q */
 
     if (dev == NULL || key == NULL) {
         return BAD_FUNC_ARG;
@@ -970,7 +1264,23 @@ int IntelQaRsaKeyGen(WC_ASYNC_DEV* dev, RsaKey* key, int keyBits, WC_BIGINT* p,
     printf("IntelQaRsaKeyGen: dev %p, keyBits %d\n", dev, keyBits);
 #endif
 
-    /* setup operation */
+    /* allocate and generate 2 primes (P/Q) */
+    XMEMSET(&prime1P, 0, sizeof(prime1P));
+    XMEMSET(&prime2Q, 0, sizeof(prime2Q));
+    ret = IntelQaAllocFlatBuffer(&prime1P, primeSz, dev->heap);
+    if (ret == 0)
+        ret = IntelQaGenPrime(dev, rng, prime1P.pData, prime1P.dataLenInBytes);
+    if (ret == 0)
+        ret = IntelQaAllocFlatBuffer(&prime2Q, primeSz, dev->heap);
+    if (ret == 0)
+        ret = IntelQaGenPrime(dev, rng, prime2Q.pData, prime2Q.dataLenInBytes);
+    if (ret != 0) {
+        IntelQaFreeFlatBuffer(&prime1P, dev->heap);
+        IntelQaFreeFlatBuffer(&prime2Q, dev->heap);
+        return ret;
+    }
+
+    /* setup key generation operation */
     opData = &dev->qat.op.rsa_keygen.opData;
     publicKey = &dev->qat.op.rsa_keygen.publicKey;
     privateKey = &dev->qat.op.rsa_keygen.privateKey;
@@ -988,32 +1298,37 @@ int IntelQaRsaKeyGen(WC_ASYNC_DEV* dev, RsaKey* key, int keyBits, WC_BIGINT* p,
     ret += IntelQaAllocFlatBuffer(&privateKey->privateKeyRep1.privateExponentD,
         keySz, dev->heap);
     ret += IntelQaAllocFlatBuffer(&privateKey->privateKeyRep2.exponent1Dp,
-        keySz/2, dev->heap);
+        primeSz, dev->heap);
     ret += IntelQaAllocFlatBuffer(&privateKey->privateKeyRep2.exponent2Dq,
-        keySz/2, dev->heap);
+        primeSz, dev->heap);
     ret += IntelQaAllocFlatBuffer(&privateKey->privateKeyRep2.coefficientQInv,
-        keySz/2, dev->heap);
+        primeSz, dev->heap);
     if (ret != 0) {
         ret = MEMORY_E; goto exit;
     }
 
     /* setup public key */
     ret  = IntelQaAllocFlatBuffer(&publicKey->modulusN, keySz, dev->heap);
+    ret += IntelQaAllocFlatBuffer(&publicKey->publicExponentE, sizeof(long),
+        dev->heap);
     if (ret != 0) {
         ret = MEMORY_E; goto exit;
     }
 
-    /* populate 2 primes (P/Q) and exponent from input */
-    ret  = IntelQaBigIntToFlatBuffer(p, &privateKey->privateKeyRep2.prime1P);
-    ret += IntelQaBigIntToFlatBuffer(q, &privateKey->privateKeyRep2.prime2Q);
-    ret += IntelQaBigIntToFlatBuffer(e, &publicKey->publicExponentE);
-    if (ret != 0) {
-        ret = MEMORY_E; goto exit;
-    }
-    /* transfer buffer ownership to flat buffer */
-    p->buf = NULL; p->len = 0;
-    q->buf = NULL; q->len = 0;
-    e->buf = NULL; e->len = 0;
+    /* populate exponent */
+    publicKey->publicExponentE.pData[3] = (e >> 24) & 0xFF;
+    publicKey->publicExponentE.pData[2] = (e >> 16) & 0xFF;
+    publicKey->publicExponentE.pData[1] = (e >> 8)  & 0xFF;
+    publicKey->publicExponentE.pData[0] =  e        & 0xFF;
+    publicKey->publicExponentE.dataLenInBytes =
+        publicKey->publicExponentE.pData[3] ? 4 :
+        publicKey->publicExponentE.pData[2] ? 3 :
+        publicKey->publicExponentE.pData[1] ? 2 :
+        publicKey->publicExponentE.pData[0] ? 1 : 0;
+
+    /* populate primes P and Q */
+    privateKey->privateKeyRep2.prime1P = prime1P;
+    privateKey->privateKeyRep2.prime2Q = prime2Q;
 
     /* setup operation data */
     opData->version = CPA_CY_RSA_VERSION_TWO_PRIME;
@@ -1035,26 +1350,21 @@ int IntelQaRsaKeyGen(WC_ASYNC_DEV* dev, RsaKey* key, int keyBits, WC_BIGINT* p,
                                 opData,
                                 privateKey,
                                 publicKey);
-    } while (IntelQaHandleCpaStatus(dev, status, &ret, QAT_RSA_KEYGEN_ASYNC,
+    } while (IntelQaHandleCpaStatus(dev, status, &ret, 0,
         callback, &retryCount));
-
-    if (ret == WC_PENDING_E)
-        return ret;
 
 exit:
 
     if (ret != 0) {
         printf("cpaCyRsaGenKey failed! dev %p, status %d, ret %d\n",
             dev, status, ret);
-
-        /* handle cleanup on failure only */
-        dev->qat.ret = ret;
-        IntelQaRsaKeyGenFree(dev);
     }
+
+    IntelQaRsaKeyGenFree(dev);
 
     return ret;
 }
-
+#endif /* WOLFSSL_KEY_GEN */
 
 static void IntelQaRsaPrivateFree(WC_ASYNC_DEV* dev)
 {

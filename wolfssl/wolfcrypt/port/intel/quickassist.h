@@ -34,6 +34,7 @@
 #include "cpa_cy_dh.h"
 #include "cpa_cy_drbg.h"
 #include "cpa_cy_nrbg.h"
+#include "cpa_cy_prime.h"
 
 /* User space utils */
 #include <stdio.h>
@@ -113,6 +114,7 @@
 struct WC_ASYNC_DEV;
 struct WC_BIGINT;
 struct IntelQaDev;
+struct WC_RNG;
 
 #if defined(QAT_ENABLE_HASH) || defined(QAT_ENABLE_CRYPTO)
 /* symmetric context */
@@ -132,6 +134,29 @@ typedef void (*IntelQaFreeFunc)(struct WC_ASYNC_DEV*);
 
 #define MAX_QAT_HASH_BUFFERS 2
 
+#if defined(QAT_ENABLE_PKI) && !defined(NO_RSA) && defined (WOLFSSL_KEY_GEN)
+    #ifndef QAT_PRIME_GEN_TRIES
+        /* number of times to try generating a prime candidates
+            based on generated miller rabbin */
+        #define QAT_PRIME_GEN_TRIES     100
+    #endif
+    #ifndef QAT_PRIME_GEN_RETRIES
+        /* number of times to try new prime candidates */
+        #define QAT_PRIME_GEN_RETRIES   1000
+    #endif
+    #ifndef QAT_PRIME_GEN_MR_ROUNDS
+        /* Miller Rabbin Rounds */
+        #define QAT_PRIME_GEN_MR_ROUNDS 2
+    #endif
+
+    enum {
+        QAT_PRIME_CHK_STATUS_INIT = 0,
+        QAT_PRIME_CHK_STATUS_FAILED,
+        QAT_PRIME_CHK_STATUS_PASSED,
+        QAT_PRIME_CHK_STATUS_ERROR,
+    };
+#endif
+
 /* QuickAssist device */
 typedef struct IntelQaDev {
 	CpaInstanceHandle handle;
@@ -149,12 +174,20 @@ typedef struct IntelQaDev {
     IntelQaFreeFunc freeFunc;
     union {
     #if defined(QAT_ENABLE_PKI) && !defined(NO_RSA)
+        #ifdef WOLFSSL_KEY_GEN
+        struct {
+            CpaCyPrimeTestOpData* opData;
+            CpaFlatBuffer* primeCandidates;
+            byte* pMillerRabinData;
+            byte testStatus[QAT_PRIME_GEN_TRIES];
+        } prime_gen;
         struct {
             CpaCyRsaKeyGenOpData opData;
             CpaCyRsaPrivateKey privateKey;
             CpaCyRsaPublicKey publicKey;
             struct RsaKey* rsakey;
         } rsa_keygen;
+        #endif /* WOLFSSL_KEY_GEN */
         struct {
             CpaCyRsaDecryptOpData opData;
             CpaCyRsaPrivateKey privateKey;
@@ -262,9 +295,13 @@ WOLFSSL_LOCAL int IntelQaPoll(struct WC_ASYNC_DEV* dev);
 WOLFSSL_LOCAL int IntelQaGetCyInstanceCount(void);
 
 #ifndef NO_RSA
+    #ifdef WOLFSSL_KEY_GEN
+    WOLFSSL_LOCAL int IntelQaGenPrime(struct WC_ASYNC_DEV* dev, struct WC_RNG* rng,
+                            byte* primeBuf, word32 primeSz);
     WOLFSSL_LOCAL int IntelQaRsaKeyGen(struct WC_ASYNC_DEV* dev,
-                            struct RsaKey* key, int keyBits, struct WC_BIGINT* p,
-                            struct WC_BIGINT* q, struct WC_BIGINT* e);
+                            struct RsaKey* key, int keyBits, long e,
+                            struct WC_RNG* rng);
+    #endif
     WOLFSSL_LOCAL int IntelQaRsaPrivate(struct WC_ASYNC_DEV* dev,
                             const byte* in, word32 inLen,
                             struct WC_BIGINT* d, struct WC_BIGINT* n,

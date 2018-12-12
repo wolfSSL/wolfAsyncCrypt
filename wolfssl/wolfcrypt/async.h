@@ -261,6 +261,9 @@ struct WC_ASYNC_DEV;
     #endif
 #endif /* WC_ASYNC_NO_CRYPT */
 #ifndef WC_ASYNC_NO_PKI
+    #ifndef WC_ASYNC_NO_RSA_KEYGEN
+        #define WC_ASYNC_ENABLE_RSA_KEYGEN
+    #endif
     #ifndef WC_ASYNC_NO_RSA
         #define WC_ASYNC_ENABLE_RSA
     #endif
