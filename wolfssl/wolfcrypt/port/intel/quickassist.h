@@ -394,6 +394,11 @@ WOLFSSL_LOCAL int IntelQaGetCyInstanceCount(void);
         const byte* in, word32 sz);
 #endif /* !NO_MD5 */
 
+#ifdef WOLFSSL_SHA3
+    WOLFSSL_LOCAL int IntelQaSymSha3(struct WC_ASYNC_DEV* dev, byte* out,
+        const byte* in, word32 sz);
+#endif
+
 #ifdef HAVE_ECC
     #ifdef HAVE_ECC_DHE
         WOLFSSL_LOCAL int IntelQaEcdh(struct WC_ASYNC_DEV* dev,

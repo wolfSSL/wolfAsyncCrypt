@@ -563,6 +563,7 @@ static int IntelQaDevIsHash(WC_ASYNC_DEV* dev)
         case WOLFSSL_ASYNC_MARKER_SHA224:
         case WOLFSSL_ASYNC_MARKER_SHA:
         case WOLFSSL_ASYNC_MARKER_MD5:
+        case WOLFSSL_ASYNC_MARKER_SHA3:
             isHash = 1;
             break;
     }
@@ -604,6 +605,7 @@ static int IntelQaDevIsSym(WC_ASYNC_DEV* dev)
         case WOLFSSL_ASYNC_MARKER_SHA224:
         case WOLFSSL_ASYNC_MARKER_SHA:
         case WOLFSSL_ASYNC_MARKER_MD5:
+        case WOLFSSL_ASYNC_MARKER_SHA3:
             isSym = 1;
             break;
     }
@@ -2506,6 +2508,14 @@ static int IntelQaSymHashGetInfo(CpaCySymHashAlgorithm hashAlgorithm,
             digestSize = WC_SHA512_DIGEST_SIZE;
         #endif
             break;
+    #ifdef QAT_V2
+        case CPA_CY_SYM_HASH_SHA3_256:
+        #ifdef WOLFSSL_SHA3
+            blockSize = WC_SHA3_256_BLOCK_SIZE;
+            digestSize = WC_SHA3_256_DIGEST_SIZE;
+        #endif
+            break;
+    #endif
 
         /* not supported */
         case CPA_CY_SYM_HASH_NONE:
@@ -2519,7 +2529,6 @@ static int IntelQaSymHashGetInfo(CpaCySymHashAlgorithm hashAlgorithm,
         case CPA_CY_SYM_HASH_AES_CBC_MAC:
     #ifdef QAT_V2
         case CPA_CY_SYM_HASH_ZUC_EIA3:
-        case CPA_CY_SYM_HASH_SHA3_256:
     #endif
         default:
             return -1;
@@ -3002,8 +3011,15 @@ int IntelQaSymMd5(WC_ASYNC_DEV* dev, byte* out, const byte* in, word32 sz)
     return IntelQaSymHash(dev, out, in, sz,
         CPA_CY_SYM_HASH_MODE_PLAIN, CPA_CY_SYM_HASH_MD5, NULL, 0);
 }
-
 #endif /* !NO_MD5 */
+
+#ifdef WOLFSSL_SHA3
+int IntelQaSymSha3(WC_ASYNC_DEV* dev, byte* out, const byte* in, word32 sz)
+{
+    return IntelQaSymHash(dev, out, in, sz,
+        CPA_CY_SYM_HASH_MODE_PLAIN, CPA_CY_SYM_HASH_SHA3_256, NULL, 0);
+}
+#endif
 
 #ifndef NO_HMAC
     int IntelQaHmacGetType(int macType, word32* hashAlgorithm)
@@ -3041,8 +3057,18 @@ int IntelQaSymMd5(WC_ASYNC_DEV* dev, byte* out, const byte* in, word32 sz)
                 if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA512;
                 break;
         #endif
+        #ifdef WOLFSSL_SHA3
+            case WC_SHA3_256:
+                if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA3_256;
+                break;
+        #endif
         #ifdef HAVE_BLAKE2
             case BLAKE2B_ID:
+        #endif
+        #ifdef WOLFSSL_SHA3
+            case WC_SHA3_224:
+            case WC_SHA3_384:
+            case WC_SHA3_512:
         #endif
             default:
                 return NOT_COMPILED_IN;
