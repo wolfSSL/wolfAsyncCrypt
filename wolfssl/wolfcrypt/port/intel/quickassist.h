@@ -42,6 +42,14 @@
 #include <string.h>
 #include <errno.h>
 
+#if 0
+    /* Optional feature for partial QAT hashing support */
+    /* This will process updates through hardware instead of caching them */
+    #define QAT_HASH_ENABLE_PARTIAL
+#endif
+#ifdef QAT_HASH_ENABLE_PARTIAL
+    #define MAX_QAT_HASH_BUFFERS 2
+#endif
 
 /* Detect QAT driver version */
 #if defined(CPA_CY_API_VERSION_NUM_MAJOR) && CPA_CY_API_VERSION_NUM_MAJOR > 1
@@ -131,8 +139,6 @@ typedef struct IntelQaSymCtx {
 #endif
 
 typedef void (*IntelQaFreeFunc)(struct WC_ASYNC_DEV*);
-
-#define MAX_QAT_HASH_BUFFERS 2
 
 #if defined(QAT_ENABLE_PKI) && !defined(NO_RSA) && defined (WOLFSSL_KEY_GEN)
     #ifndef QAT_PRIME_GEN_TRIES
@@ -243,11 +249,13 @@ typedef struct IntelQaDev {
             CpaBufferList* srcList;
             byte* tmpIn; /* tmp buffer to hold anything pending less than block size */
             word32 tmpInSz;
-            word32 blockSize;
+            word32 tmpInBufSz;
 
+        #ifdef QAT_HASH_ENABLE_PARTIAL
             int bufferCount;
             byte* buffers[MAX_QAT_HASH_BUFFERS];
             word32 buffersSz[MAX_QAT_HASH_BUFFERS];
+        #endif
         } hash;
     #endif
     #if defined(QAT_ENABLE_PKI) && !defined(NO_DH)
@@ -394,7 +402,7 @@ WOLFSSL_LOCAL int IntelQaGetCyInstanceCount(void);
         const byte* in, word32 sz);
 #endif /* !NO_MD5 */
 
-#ifdef WOLFSSL_SHA3
+#if defined(WOLFSSL_SHA3) && defined(QAT_V2)
     WOLFSSL_LOCAL int IntelQaSymSha3(struct WC_ASYNC_DEV* dev, byte* out,
         const byte* in, word32 sz);
 #endif

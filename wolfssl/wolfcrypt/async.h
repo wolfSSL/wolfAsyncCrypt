@@ -296,6 +296,9 @@ struct WC_ASYNC_DEV;
     #ifndef WC_ASYNC_NO_HMAC
         #define WC_ASYNC_ENABLE_HMAC
     #endif
+    #ifndef WC_ASYNC_NO_SHA3
+        #define WC_ASYNC_ENABLE_SHA3
+    #endif
 #endif /* WC_ASYNC_NO_HASH */
 #ifndef WC_ASYNC_NO_RNG
     #define WC_ASYNC_ENABLE_RNG
@@ -318,6 +321,7 @@ struct WC_ASYNC_DEV;
 #define WOLFSSL_ASYNC_MARKER_SHA    0xBEEF000C
 #define WOLFSSL_ASYNC_MARKER_MD5    0xBEEF000D
 #define WOLFSSL_ASYNC_MARKER_DH     0xBEEF000E
+#define WOLFSSL_ASYNC_MARKER_SHA3   0xBEEF000F
 
 
 /* event flags (bit mask) */

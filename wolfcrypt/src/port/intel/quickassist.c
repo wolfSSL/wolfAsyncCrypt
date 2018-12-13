@@ -58,8 +58,10 @@
 #include "icp_sal_drbg_impl.h"
 #endif
 
+#ifdef QAT_HASH_ENABLE_PARTIAL
 #ifdef USE_LAC_SESSION_FOR_STRUCT_OFFSET
     #include "lac_session.h"
+#endif
 #endif
 
 #ifdef NO_INLINE
@@ -115,6 +117,13 @@ static volatile int g_initCount = 0;
     static Cpa8U* g_qatEcdhCofactor1 = NULL;
 #endif
 static pthread_mutex_t g_Hwlock = PTHREAD_MUTEX_INITIALIZER;
+
+typedef struct qatCapabilities {
+    /* capabilities */
+    word32 supPartial:1;
+    word32 supSha3:1;
+} qatCapabilities_t;
+static qatCapabilities_t g_qatCapabilities = {0};
 
 
 #if defined(QAT_ENABLE_CRYPTO) || defined(QAT_ENABLE_HASH)
@@ -409,10 +418,15 @@ int IntelQaHardwareStart(const char* process_name, int limitDevAccess)
         /* capabilities */
         status = cpaCySymQueryCapabilities(g_cyInstances[i], &capabilities);
         if (status == CPA_STATUS_SUCCESS) {
+            g_qatCapabilities.supPartial = capabilities.partialPacketSupported;
             if (capabilities.partialPacketSupported != CPA_TRUE) {
                 printf("Warning: QAT does not support partial packets!\n");
             }
         }
+    #ifdef QAT_V2
+        g_qatCapabilities.supSha3 = CPA_BITMAP_BIT_TEST(capabilities.hashes,
+            CPA_CY_SYM_HASH_SHA3_256);
+    #endif
 
     #ifdef QAT_DEBUG
         printf("Inst %u, Node: %d, Affin: %u, Dev: %u, Accel %u",
@@ -690,12 +704,15 @@ int IntelQaDevCopy(WC_ASYNC_DEV* src, WC_ASYNC_DEV* dst)
     if (isHash) {
         /* need to duplicate tmpIn */
         if (src->qat.op.hash.tmpIn) {
-            dst->qat.op.hash.tmpIn = XMALLOC(src->qat.op.hash.blockSize, src->heap,
-                DYNAMIC_TYPE_ASYNC_NUMA);
+            dst->qat.op.hash.tmpIn = XMALLOC(src->qat.op.hash.tmpInBufSz,
+                src->heap, DYNAMIC_TYPE_ASYNC_NUMA);
             if (dst->qat.op.hash.tmpIn == NULL) {
                 return MEMORY_E;
             }
-            XMEMCPY(dst->qat.op.hash.tmpIn, src->qat.op.hash.tmpIn, src->qat.op.hash.tmpInSz);
+            XMEMCPY(dst->qat.op.hash.tmpIn, src->qat.op.hash.tmpIn,
+                src->qat.op.hash.tmpInSz);
+            dst->qat.op.hash.tmpInSz = src->qat.op.hash.tmpInSz;
+            dst->qat.op.hash.tmpInBufSz = src->qat.op.hash.tmpInBufSz;
         }
     }
 #endif /* QAT_ENABLE_HASH */
@@ -1153,18 +1170,21 @@ exit:
 
 static void IntelQaRsaKeyGenFree(WC_ASYNC_DEV* dev)
 {
-    /* free on failures only */
+    CpaCyRsaPrivateKey* privateKey = &dev->qat.op.rsa_keygen.privateKey;
+
+    /* This one is not owned by RsaKey */
+    IntelQaFreeFlatBuffer(&privateKey->privateKeyRep1.modulusN, dev->heap);
+
+    /* free remaining on failures only */
     /* ownership of these buffers goes to RsaKey */
     if (dev->qat.ret != 0) {
         CpaCyRsaKeyGenOpData* opData = &dev->qat.op.rsa_keygen.opData;
-        CpaCyRsaPrivateKey* privateKey = &dev->qat.op.rsa_keygen.privateKey;
         CpaCyRsaPublicKey* publicKey = &dev->qat.op.rsa_keygen.publicKey;
 
         IntelQaFreeFlatBuffer(&publicKey->modulusN, dev->heap);
         IntelQaFreeFlatBuffer(&publicKey->publicExponentE, dev->heap);
 
         IntelQaFreeFlatBuffer(&privateKey->privateKeyRep1.privateExponentD, dev->heap);
-        IntelQaFreeFlatBuffer(&privateKey->privateKeyRep1.modulusN, dev->heap);
         IntelQaFreeFlatBuffer(&privateKey->privateKeyRep2.prime1P, dev->heap);
         IntelQaFreeFlatBuffer(&privateKey->privateKeyRep2.prime2Q, dev->heap);
         IntelQaFreeFlatBuffer(&privateKey->privateKeyRep2.exponent1Dp, dev->heap);
@@ -2579,7 +2599,7 @@ static void IntelQaSymHashFree(WC_ASYNC_DEV* dev)
         }
         dev->qat.op.hash.tmpIn = NULL;
         dev->qat.op.hash.tmpInSz = 0;
-        dev->qat.op.hash.blockSize = 0;
+        dev->qat.op.hash.tmpInBufSz = 0;
 
         if (ctx->isCopy || ctx->symCtx != ctx->symCtxSrc) {
             doFree = 1;
@@ -2636,7 +2656,188 @@ static void IntelQaSymHashCallback(void *pCallbackTag, CpaStatus status,
 
 /* For hash update call with out == NULL */
 /* For hash final call with out != NULL */
-static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
+/* All input is cached in memory or only sent to hardware on final */
+#ifndef QAT_HASH_ALLOC_BLOCK_SZ
+    #define QAT_HASH_ALLOC_BLOCK_SZ 1024
+#endif
+static int IntelQaSymHashCache(WC_ASYNC_DEV* dev, byte* out, const byte* in,
+    word32 inOutSz, CpaCySymHashMode hashMode,
+    CpaCySymHashAlgorithm hashAlgorithm,
+
+    /* For HMAC auth mode only */
+    Cpa8U* authKey, Cpa32U authKeyLenInBytes)
+{
+    int ret, retryCount = 0;
+    CpaStatus status = CPA_STATUS_SUCCESS;
+    CpaCySymOpData* opData = NULL;
+    CpaCySymCbFunc callback = IntelQaSymHashCallback;
+    CpaBufferList* srcList = NULL;
+    Cpa32U bufferListSize = 0;
+    Cpa8U* digestBuf = NULL;
+    Cpa32U metaSize = 0;
+    Cpa32U totalMsgSz = 0;
+    Cpa32U blockSize;
+    Cpa32U digestSize;
+    CpaCySymPacketType packetType;
+    IntelQaSymCtx* ctx;
+    CpaCySymSessionSetupData setup;
+    const int bufferCount = 1;
+
+    ret = IntelQaSymHashGetInfo(hashAlgorithm, &blockSize, &digestSize);
+    if (ret != 0) {
+        return BAD_FUNC_ARG;
+    }
+
+#ifdef QAT_DEBUG
+    printf("IntelQaSymHashCache: dev %p, out %p, in %p, inOutSz %d, mode %d"
+        ", algo %d, digSz %d, blkSz %d\n",
+        dev, out, in, inOutSz, hashMode, hashAlgorithm, digestSize, blockSize);
+#endif
+
+    ctx = &dev->qat.op.hash.ctx;
+
+    /* handle input processing */
+    if (in) {
+        if (dev->qat.op.hash.tmpIn == NULL) {
+            dev->qat.op.hash.tmpInSz = 0;
+            dev->qat.op.hash.tmpInBufSz = (inOutSz + QAT_HASH_ALLOC_BLOCK_SZ - 1)
+                & ~(QAT_HASH_ALLOC_BLOCK_SZ - 1);
+            if (dev->qat.op.hash.tmpInBufSz == 0)
+                dev->qat.op.hash.tmpInBufSz = QAT_HASH_ALLOC_BLOCK_SZ;
+            dev->qat.op.hash.tmpIn = (byte*)XMALLOC(dev->qat.op.hash.tmpInBufSz,
+                dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+            if (dev->qat.op.hash.tmpIn == NULL) {
+                ret = MEMORY_E; goto exit;
+            }
+        }
+        /* determine if we need to grow buffer */
+        else if ((dev->qat.op.hash.tmpInSz + inOutSz) >
+                                                dev->qat.op.hash.tmpInBufSz) {
+            byte* oldIn = dev->qat.op.hash.tmpIn;
+            dev->qat.op.hash.tmpInBufSz = (dev->qat.op.hash.tmpInSz + inOutSz +
+                QAT_HASH_ALLOC_BLOCK_SZ - 1) & ~(QAT_HASH_ALLOC_BLOCK_SZ - 1);
+
+             dev->qat.op.hash.tmpIn = (byte*)XMALLOC(dev->qat.op.hash.tmpInBufSz,
+                dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+            if (dev->qat.op.hash.tmpIn == NULL) {
+                ret = MEMORY_E; goto exit;
+            }
+            XMEMCPY(dev->qat.op.hash.tmpIn, oldIn, dev->qat.op.hash.tmpInSz);
+            XFREE(oldIn, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+        }
+
+        /* copy input to new buffer */
+        XMEMCPY(&dev->qat.op.hash.tmpIn[dev->qat.op.hash.tmpInSz], in, inOutSz);
+        dev->qat.op.hash.tmpInSz += inOutSz;
+
+        ret = 0; /* success */
+        goto exit;
+    }
+
+    /* handle output processing */
+    packetType = CPA_CY_SYM_PACKET_TYPE_FULL;
+
+    /* get meta size */
+    status = cpaCyBufferListGetMetaSize(dev->qat.handle, bufferCount, &metaSize);
+    if (status != CPA_STATUS_SUCCESS && metaSize <= 0) {
+        ret = BUFFER_E; goto exit;
+    }
+
+    /* allocate buffer list */
+    bufferListSize = sizeof(CpaBufferList) +
+        (bufferCount * sizeof(CpaFlatBuffer)) + metaSize;
+    srcList = XMALLOC(bufferListSize, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+    if (srcList == NULL) {
+        ret = MEMORY_E; goto exit;
+    }
+    dev->qat.op.hash.srcList = srcList;
+    XMEMSET(srcList, 0, bufferListSize);
+    srcList->pBuffers = (CpaFlatBuffer*)(
+        (byte*)srcList + sizeof(CpaBufferList));
+    srcList->pPrivateMetaData = (byte*)srcList + sizeof(CpaBufferList) +
+        (bufferCount * sizeof(CpaFlatBuffer));
+
+    srcList->numBuffers = bufferCount;
+    srcList->pBuffers[0].dataLenInBytes = dev->qat.op.hash.tmpInSz;
+    srcList->pBuffers[0].pData = dev->qat.op.hash.tmpIn;
+    totalMsgSz = dev->qat.op.hash.tmpInSz;
+
+    dev->qat.op.hash.tmpInSz = 0;
+    dev->qat.op.hash.tmpInBufSz = 0;
+    dev->qat.op.hash.tmpIn = NULL;
+
+    /* build output */
+    if (out) {
+        /* use blockSize for alloc, but we are only returning digestSize */
+        digestBuf = XMALLOC(blockSize, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+        if (digestBuf == NULL) {
+            ret = MEMORY_E; goto exit;
+        }
+    }
+
+    /* setup */
+    XMEMSET(&setup, 0, sizeof(CpaCySymSessionSetupData));
+    setup.sessionPriority = CPA_CY_PRIORITY_NORMAL;
+    setup.symOperation = CPA_CY_SYM_OP_HASH;
+    setup.partialsNotRequired = CPA_TRUE;
+    setup.hashSetupData.hashMode = hashMode;
+    setup.hashSetupData.hashAlgorithm = hashAlgorithm;
+    setup.hashSetupData.digestResultLenInBytes = digestSize;
+    setup.hashSetupData.authModeSetupData.authKey = authKey;
+    setup.hashSetupData.authModeSetupData.authKeyLenInBytes = authKeyLenInBytes;
+
+    /* open session */
+    ret = IntelQaSymOpen(dev, &setup, callback);
+    if (ret != 0) {
+        goto exit;
+    }
+
+    /* operation data */
+    opData = &ctx->opData;
+    XMEMSET(opData, 0, sizeof(CpaCySymOpData));
+    opData->sessionCtx = ctx->symCtx;
+    opData->packetType = packetType;
+    opData->messageLenToHashInBytes = totalMsgSz;
+    opData->pDigestResult = digestBuf;
+
+    /* store info needed for output */
+    dev->qat.out = out;
+    dev->qat.outLen = inOutSz;
+    IntelQaOpInit(dev, IntelQaSymHashFree);
+
+    /* perform symmetric hash operation async */
+    /* use same buffer list for in-place operation */
+    do {
+        status = cpaCySymPerformOp(dev->qat.handle,
+                                   dev,
+                                   opData,
+                                   srcList,
+                                   srcList,
+                                   NULL);
+    } while (IntelQaHandleCpaStatus(dev, status, &ret, QAT_HASH_ASYNC, callback,
+        &retryCount));
+
+    if (ret == WC_PENDING_E)
+        return ret;
+
+exit:
+
+    if (ret != 0) {
+        printf("cpaCySymPerformOp Hash failed! dev %p, status %d, ret %d\n",
+            dev, status, ret);
+
+        /* handle cleanup */
+        IntelQaSymHashFree(dev);
+    }
+
+    return ret;
+}
+
+#ifdef QAT_HASH_ENABLE_PARTIAL
+
+/* For hash update call with out == NULL */
+/* For hash final call with out != NULL */
+static int IntelQaSymHashPartial(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     word32 inOutSz, CpaCySymHashMode hashMode,
     CpaCySymHashAlgorithm hashAlgorithm,
 
@@ -2662,27 +2863,17 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     byte** buffers;
     word32* buffersSz;
 
-#ifdef QAT_DEBUG
-    printf("IntelQaSymHash: dev %p, out %p, in %p, inOutSz %d, mode %d, algo %d\n",
-        dev, out, in, inOutSz, hashMode, hashAlgorithm);
-#endif
-
-    /* check args */
-    if (dev == NULL || (out == NULL && in == NULL) ||
-                                    hashAlgorithm == CPA_CY_SYM_HASH_NONE) {
-        return BAD_FUNC_ARG;
-    }
-    /* trap call with both in and out set */
-    if (in != NULL && out != NULL) {
-        printf("IntelQaSymHash: Cannot call with in and out both set\n");
-        return BAD_FUNC_ARG;
-    }
-
     ret = IntelQaSymHashGetInfo(hashAlgorithm, &blockSize, &digestSize);
     if (ret != 0) {
         return BAD_FUNC_ARG;
     }
-    dev->qat.op.hash.blockSize = blockSize;
+
+#ifdef QAT_DEBUG
+    printf("IntelQaSymHashPartial: dev %p, out %p, in %p, inOutSz %d, mode %d, "
+        "algo %d, digSz %d, blkSz %d\n",
+        dev, out, in, inOutSz, hashMode, hashAlgorithm, digestSize, blockSize);
+#endif
+
     ctx = &dev->qat.op.hash.ctx;
 
     bufferCount = &dev->qat.op.hash.bufferCount;
@@ -2692,16 +2883,19 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     /* handle input processing */
     if (in) {
         /* if tmp has data or input is not block aligned */
-        if (dev->qat.op.hash.tmpInSz > 0 || (inOutSz % blockSize)) {
+        if (dev->qat.op.hash.tmpInSz > 0 || inOutSz == 0 ||
+            (inOutSz % blockSize) != 0) {
             /* need to handle unaligned hashing, using local tmp */
 
             /* make sure we have tmpIn allocated */
             if (dev->qat.op.hash.tmpIn == NULL) {
                 dev->qat.op.hash.tmpInSz = 0;
-                dev->qat.op.hash.tmpIn = XMALLOC(blockSize, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+                dev->qat.op.hash.tmpIn = XMALLOC(blockSize, dev->heap,
+                    DYNAMIC_TYPE_ASYNC_NUMA);
                 if (dev->qat.op.hash.tmpIn == NULL) {
                     ret = MEMORY_E; goto exit;
                 }
+                dev->qat.op.hash.tmpInBufSz = blockSize;
             }
 
             /* setup processing for block aligned part of input or use tmpIn */
@@ -2752,6 +2946,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
                         if (dev->qat.op.hash.tmpIn == NULL) {
                             ret = MEMORY_E; goto exit;
                         }
+                        dev->qat.op.hash.tmpInBufSz = blockSize;
 
                         XMEMCPY(dev->qat.op.hash.tmpIn, in, inOutSz);
                         dev->qat.op.hash.tmpInSz = inOutSz;
@@ -2814,7 +3009,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     packetType = CPA_CY_SYM_PACKET_TYPE_PARTIAL;
     if (out) {
         /* if remainder then add it */
-        if (dev->qat.op.hash.tmpIn && dev->qat.op.hash.tmpInSz > 0) {
+        if (dev->qat.op.hash.tmpIn) {
             /* add buffer and use final hash type */
             buffers[*bufferCount] = dev->qat.op.hash.tmpIn;
             buffersSz[*bufferCount] = dev->qat.op.hash.tmpInSz;
@@ -2872,15 +3067,14 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
         if (digestBuf == NULL) {
             ret = MEMORY_E; goto exit;
         }
-        XMEMSET(&digestBuf[digestSize], 0, blockSize - digestSize);
-        XMEMCPY(digestBuf, out, digestSize);
     }
 
     /* setup */
     XMEMSET(&setup, 0, sizeof(CpaCySymSessionSetupData));
     setup.sessionPriority = CPA_CY_PRIORITY_NORMAL;
     setup.symOperation = CPA_CY_SYM_OP_HASH;
-    setup.partialsNotRequired = (packetType == CPA_CY_SYM_PACKET_TYPE_FULL) ? CPA_TRUE : CPA_FALSE;
+    setup.partialsNotRequired = (packetType == CPA_CY_SYM_PACKET_TYPE_FULL) ?
+        CPA_TRUE : CPA_FALSE;
     setup.hashSetupData.hashMode = hashMode;
     setup.hashSetupData.hashAlgorithm = hashAlgorithm;
     setup.hashSetupData.digestResultLenInBytes = digestSize;
@@ -2956,7 +3150,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
 exit:
 
     if (ret != 0) {
-        printf("cpaCySymPerformOp Hash failed! dev %p, status %d, ret %d\n",
+        printf("cpaCySymPerformOp Hash partial failed! dev %p, status %d, ret %d\n",
             dev, status, ret);
 
         /* handle cleanup */
@@ -2964,6 +3158,43 @@ exit:
     }
 
     return ret;
+}
+#endif /* QAT_HASH_ENABLE_PARTIAL */
+
+
+/* For hash update call with out == NULL */
+/* For hash final call with out != NULL */
+static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
+    word32 inOutSz, CpaCySymHashMode hashMode,
+    CpaCySymHashAlgorithm hashAlgorithm,
+
+    /* For HMAC auth mode only */
+    Cpa8U* authKey, Cpa32U authKeyLenInBytes)
+{
+    /* check args */
+    if (dev == NULL || (out == NULL && in == NULL) ||
+                                    hashAlgorithm == CPA_CY_SYM_HASH_NONE) {
+        return BAD_FUNC_ARG;
+    }
+    /* trap call with both in and out set */
+    if (in != NULL && out != NULL) {
+        printf("IntelQaSymHash: Cannot call with in and out both set\n");
+        return BAD_FUNC_ARG;
+    }
+
+#ifdef QAT_HASH_ENABLE_PARTIAL
+    if (g_qatCapabilities.supPartial
+    #ifdef QAT_V2
+        && hashAlgorithm != CPA_CY_SYM_HASH_SHA3_256
+    #endif
+    ) {
+        return IntelQaSymHashPartial(dev, out, in, inOutSz, hashMode,
+            hashAlgorithm, authKey, authKeyLenInBytes);
+    }
+    else
+#endif
+    return IntelQaSymHashCache(dev, out, in, inOutSz, hashMode,
+        hashAlgorithm, authKey, authKeyLenInBytes);
 }
 
 #ifdef WOLFSSL_SHA512
@@ -3013,53 +3244,65 @@ int IntelQaSymMd5(WC_ASYNC_DEV* dev, byte* out, const byte* in, word32 sz)
 }
 #endif /* !NO_MD5 */
 
-#ifdef WOLFSSL_SHA3
+#if defined(WOLFSSL_SHA3) && defined(QAT_V2)
 int IntelQaSymSha3(WC_ASYNC_DEV* dev, byte* out, const byte* in, word32 sz)
 {
-    return IntelQaSymHash(dev, out, in, sz,
-        CPA_CY_SYM_HASH_MODE_PLAIN, CPA_CY_SYM_HASH_SHA3_256, NULL, 0);
+    if (g_qatCapabilities.supSha3) {
+        return IntelQaSymHash(dev, out, in, sz,
+            CPA_CY_SYM_HASH_MODE_PLAIN, CPA_CY_SYM_HASH_SHA3_256, NULL, 0);
+    }
+    return NOT_COMPILED_IN;
 }
 #endif
 
 #ifndef NO_HMAC
     int IntelQaHmacGetType(int macType, word32* hashAlgorithm)
     {
-        int ret = 0;
+        int ret = NOT_COMPILED_IN;
 
         switch (macType) {
         #ifndef NO_MD5
             case WC_MD5:
                 if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_MD5;
+                ret = 0;
                 break;
         #endif
         #ifndef NO_SHA
             case WC_SHA:
                 if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA1;
+                ret = 0;
                 break;
         #endif
         #ifdef WOLFSSL_SHA224
             case WC_SHA224:
                 if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA224;
+                ret = 0;
                 break;
         #endif
         #ifndef NO_SHA256
             case WC_SHA256:
                 if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA256;
+                ret = 0;
                 break;
         #endif
         #ifdef WOLFSSL_SHA512
         #ifdef WOLFSSL_SHA384
             case WC_SHA384:
                 if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA384;
+                ret = 0;
                 break;
         #endif
             case WC_SHA512:
                 if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA512;
+                ret = 0;
                 break;
         #endif
         #ifdef WOLFSSL_SHA3
             case WC_SHA3_256:
-                if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA3_256;
+                if (g_qatCapabilities.supSha3) {
+                    if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA3_256;
+                    ret = 0;
+                }
                 break;
         #endif
         #ifdef HAVE_BLAKE2
@@ -3071,7 +3314,7 @@ int IntelQaSymSha3(WC_ASYNC_DEV* dev, byte* out, const byte* in, word32 sz)
             case WC_SHA3_512:
         #endif
             default:
-                return NOT_COMPILED_IN;
+                ret = NOT_COMPILED_IN;
         }
         return ret;
     }
