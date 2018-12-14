@@ -425,7 +425,7 @@ int IntelQaHardwareStart(const char* process_name, int limitDevAccess)
         }
     #ifdef QAT_V2
         g_qatCapabilities.supSha3 = CPA_BITMAP_BIT_TEST(capabilities.hashes,
-            CPA_CY_SYM_HASH_SHA3_256);
+            CPA_CY_SYM_HASH_SHA3_256) ? 1 : 0;
     #endif
 
     #ifdef QAT_DEBUG
