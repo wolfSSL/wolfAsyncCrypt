@@ -24,13 +24,15 @@
 
 #ifdef HAVE_INTEL_QA
 
-#include "cpa.h"
+#include <wolfssl/wolfcrypt/port/intel/quickassist.h>
 
-#define QAE_PHYS_ADDR  CpaPhysicalAddr
+CpaStatus qaeMemInit(void);
+void qaeMemDestroy(void);
 
-WOLFSSL_LOCAL CpaStatus qaeMemInit(void);
-WOLFSSL_LOCAL void qaeMemDestroy(void);
-WOLFSSL_LOCAL QAE_PHYS_ADDR qaeVirtToPhysNUMA(void* pVirtAddress);
+#ifndef QAT_V2
+    #define QAE_PHYS_ADDR  CpaPhysicalAddr
+    WOLFSSL_LOCAL QAE_PHYS_ADDR qaeVirtToPhysNUMA(void* pVirtAddress);
+#endif
 
 
 #ifdef WOLFSSL_TRACK_MEMORY

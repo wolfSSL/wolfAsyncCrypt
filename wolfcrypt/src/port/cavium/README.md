@@ -220,3 +220,8 @@ ECDHE    256 agree     HW  10500 ops took 1.001 sec, avg 0.095 ms, 10485.383 ops
 ECDSA    256 sign      HW  22200 ops took 1.001 sec, avg 0.045 ms, 22169.233 ops/sec
 ECDSA    256 verify    HW   7500 ops took 1.012 sec, avg 0.135 ms, 7408.213 ops/sec
 ```
+
+
+## Support
+
+For questions or issues email us at support@wolfssl.com.

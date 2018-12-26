@@ -34,12 +34,33 @@
 #include "cpa_cy_dh.h"
 #include "cpa_cy_drbg.h"
 #include "cpa_cy_nrbg.h"
+#include "cpa_cy_prime.h"
 
 /* User space utils */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+
+#if 0
+    /* Optional feature for partial QAT hashing support */
+    /* This will process updates through hardware instead of caching them */
+    #define QAT_HASH_ENABLE_PARTIAL
+#endif
+#ifdef QAT_HASH_ENABLE_PARTIAL
+    #define MAX_QAT_HASH_BUFFERS 2
+#endif
+
+/* Detect QAT driver version */
+#if defined(CPA_CY_API_VERSION_NUM_MAJOR) && CPA_CY_API_VERSION_NUM_MAJOR > 1
+    #define QAT_V2
+#endif
+
+#ifdef QAT_V2
+    /* quickassist/utilities/libusdm_drv/qae_mem.h */
+    /* Provides user-space API's for accessing NUMA allocated memory through usdm_drv */
+    #include "qae_mem.h"
+#endif
 
 #ifdef QAT_USE_POLLING_THREAD
     #include <pthread.h>
@@ -92,11 +113,16 @@
     #define QAT_ENABLE_PKI
 #endif
 
+/* QAT 1.7 does not support NRBG or DRBG */
+#if !defined(QAT_V2) && !defined(NO_QAT_RNG)
+    #define QAT_ENABLE_RNG
+#endif
 
 /* Pre-declarations */
 struct WC_ASYNC_DEV;
 struct WC_BIGINT;
 struct IntelQaDev;
+struct WC_RNG;
 
 #if defined(QAT_ENABLE_HASH) || defined(QAT_ENABLE_CRYPTO)
 /* symmetric context */
@@ -114,7 +140,28 @@ typedef struct IntelQaSymCtx {
 
 typedef void (*IntelQaFreeFunc)(struct WC_ASYNC_DEV*);
 
-#define MAX_QAT_HASH_BUFFERS 2
+#if defined(QAT_ENABLE_PKI) && !defined(NO_RSA) && defined (WOLFSSL_KEY_GEN)
+    #ifndef QAT_PRIME_GEN_TRIES
+        /* number of times to try generating a prime candidates
+            based on generated miller rabbin */
+        #define QAT_PRIME_GEN_TRIES     100
+    #endif
+    #ifndef QAT_PRIME_GEN_RETRIES
+        /* number of times to try new prime candidates */
+        #define QAT_PRIME_GEN_RETRIES   1000
+    #endif
+    #ifndef QAT_PRIME_GEN_MR_ROUNDS
+        /* Miller Rabbin Rounds */
+        #define QAT_PRIME_GEN_MR_ROUNDS 2
+    #endif
+
+    enum {
+        QAT_PRIME_CHK_STATUS_INIT = 0,
+        QAT_PRIME_CHK_STATUS_FAILED,
+        QAT_PRIME_CHK_STATUS_PASSED,
+        QAT_PRIME_CHK_STATUS_ERROR,
+    };
+#endif
 
 /* QuickAssist device */
 typedef struct IntelQaDev {
@@ -132,7 +179,21 @@ typedef struct IntelQaDev {
     /* operations */
     IntelQaFreeFunc freeFunc;
     union {
-    #ifndef NO_RSA
+    #if defined(QAT_ENABLE_PKI) && !defined(NO_RSA)
+        #ifdef WOLFSSL_KEY_GEN
+        struct {
+            CpaCyPrimeTestOpData* opData;
+            CpaFlatBuffer* primeCandidates;
+            byte* pMillerRabinData;
+            byte testStatus[QAT_PRIME_GEN_TRIES];
+        } prime_gen;
+        struct {
+            CpaCyRsaKeyGenOpData opData;
+            CpaCyRsaPrivateKey privateKey;
+            CpaCyRsaPublicKey publicKey;
+            struct RsaKey* rsakey;
+        } rsa_keygen;
+        #endif /* WOLFSSL_KEY_GEN */
         struct {
             CpaCyRsaDecryptOpData opData;
             CpaCyRsaPrivateKey privateKey;
@@ -157,15 +218,15 @@ typedef struct IntelQaDev {
             word32 authTagSz;
         } cipher;
     #endif
-#ifdef HAVE_ECC
-    #ifdef HAVE_ECC_DHE
+    #if defined(QAT_ENABLE_PKI) && defined(HAVE_ECC)
+        #ifdef HAVE_ECC_DHE
         struct {
             CpaCyEcdhPointMultiplyOpData opData;
             CpaFlatBuffer pXk;
             CpaFlatBuffer pYk;
         } ecc_ecdh;
-    #endif
-    #ifdef HAVE_ECC_SIGN
+        #endif
+        #ifdef HAVE_ECC_SIGN
         struct {
             CpaCyEcdsaSignRSOpData opData;
             CpaFlatBuffer R;
@@ -174,28 +235,30 @@ typedef struct IntelQaDev {
             struct WC_BIGINT* pR;
             struct WC_BIGINT* pS;
         } ecc_sign;
-    #endif
-    #ifdef HAVE_ECC_VERIFY
+        #endif
+        #ifdef HAVE_ECC_VERIFY
         struct {
             CpaCyEcdsaVerifyOpData opData;
             int* stat;
         } ecc_verify;
-    #endif
-#endif
+        #endif
+    #endif /* HAVE_ECC */
     #ifdef QAT_ENABLE_HASH
         struct {
             IntelQaSymCtx ctx;
             CpaBufferList* srcList;
             byte* tmpIn; /* tmp buffer to hold anything pending less than block size */
             word32 tmpInSz;
-            word32 blockSize;
+            word32 tmpInBufSz;
 
+        #ifdef QAT_HASH_ENABLE_PARTIAL
             int bufferCount;
             byte* buffers[MAX_QAT_HASH_BUFFERS];
             word32 buffersSz[MAX_QAT_HASH_BUFFERS];
+        #endif
         } hash;
     #endif
-    #ifndef NO_DH
+    #if defined(QAT_ENABLE_PKI) && !defined(NO_DH)
         struct {
             CpaCyDhPhase1KeyGenOpData opData;
             CpaFlatBuffer pOut;
@@ -205,11 +268,13 @@ typedef struct IntelQaDev {
             CpaFlatBuffer pOut;
         } dh_agree;
     #endif
+    #ifdef QAT_ENABLE_RNG
         struct {
             CpaCyDrbgGenOpData opData;
             CpaCyDrbgSessionHandle handle;
             CpaFlatBuffer pOut;
         } drbg;
+    #endif
     } op;
 
 #ifdef QAT_USE_POLLING_THREAD
@@ -238,6 +303,13 @@ WOLFSSL_LOCAL int IntelQaPoll(struct WC_ASYNC_DEV* dev);
 WOLFSSL_LOCAL int IntelQaGetCyInstanceCount(void);
 
 #ifndef NO_RSA
+    #ifdef WOLFSSL_KEY_GEN
+    WOLFSSL_LOCAL int IntelQaGenPrime(struct WC_ASYNC_DEV* dev, struct WC_RNG* rng,
+                            byte* primeBuf, word32 primeSz);
+    WOLFSSL_LOCAL int IntelQaRsaKeyGen(struct WC_ASYNC_DEV* dev,
+                            struct RsaKey* key, int keyBits, long e,
+                            struct WC_RNG* rng);
+    #endif
     WOLFSSL_LOCAL int IntelQaRsaPrivate(struct WC_ASYNC_DEV* dev,
                             const byte* in, word32 inLen,
                             struct WC_BIGINT* d, struct WC_BIGINT* n,
@@ -329,6 +401,11 @@ WOLFSSL_LOCAL int IntelQaGetCyInstanceCount(void);
     WOLFSSL_LOCAL int IntelQaSymMd5(struct WC_ASYNC_DEV* dev, byte* out,
         const byte* in, word32 sz);
 #endif /* !NO_MD5 */
+
+#if defined(WOLFSSL_SHA3) && defined(QAT_V2)
+    WOLFSSL_LOCAL int IntelQaSymSha3(struct WC_ASYNC_DEV* dev, byte* out,
+        const byte* in, word32 sz);
+#endif
 
 #ifdef HAVE_ECC
     #ifdef HAVE_ECC_DHE

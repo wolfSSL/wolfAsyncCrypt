@@ -54,10 +54,14 @@
 
 #include "icp_sal_user.h"
 #include "icp_sal_poll.h"
+#ifndef QAT_V2
 #include "icp_sal_drbg_impl.h"
+#endif
 
+#ifdef QAT_HASH_ENABLE_PARTIAL
 #ifdef USE_LAC_SESSION_FOR_STRUCT_OFFSET
     #include "lac_session.h"
+#endif
 #endif
 
 #ifdef NO_INLINE
@@ -68,14 +72,32 @@
 #endif
 
 /* Async enables (1=non-block, 0=block) */
-#define QAT_RSA_ASYNC       1
-#define QAT_EXPTMOD_ASYNC   1
-#define QAT_CIPHER_ASYNC    1
-#define QAT_HASH_ASYNC      0
-#define QAT_ECDSA_ASYNC     1
-#define QAT_ECDHE_ASYNC     1
-#define QAT_DH_ASYNC        1
-#define QAT_DRBG_ASYNC      0
+#ifndef QAT_RSA_ASYNC
+#define QAT_RSA_ASYNC        1
+#endif
+#ifndef QAT_EXPTMOD_ASYNC
+#define QAT_EXPTMOD_ASYNC    1
+#endif
+#ifndef QAT_CIPHER_ASYNC
+#define QAT_CIPHER_ASYNC     1
+#endif
+#ifndef QAT_ECDSA_ASYNC
+#define QAT_ECDSA_ASYNC      1
+#endif
+#ifndef QAT_ECDHE_ASYNC
+#define QAT_ECDHE_ASYNC      1
+#endif
+#ifndef QAT_DH_ASYNC
+#define QAT_DH_ASYNC         1
+#endif
+
+/* Hash and Drbg do not support async in wolfSSL/wolfCrypt */
+#ifndef QAT_HASH_ASYNC
+#define QAT_HASH_ASYNC       0
+#endif
+#ifndef QAT_DRBG_ASYNC
+#define QAT_DRBG_ASYNC       0
+#endif
 
 #define OS_HOST_TO_NW_32(uData) ByteReverseWord32(uData)
 
@@ -96,11 +118,20 @@ static volatile int g_initCount = 0;
 #endif
 static pthread_mutex_t g_Hwlock = PTHREAD_MUTEX_INITIALIZER;
 
+typedef struct qatCapabilities {
+    /* capabilities */
+    word32 supPartial:1;
+    word32 supSha3:1;
+} qatCapabilities_t;
+static qatCapabilities_t g_qatCapabilities = {0};
+
 
 #if defined(QAT_ENABLE_CRYPTO) || defined(QAT_ENABLE_HASH)
     static int IntelQaSymClose(WC_ASYNC_DEV* dev, int doFree);
 #endif
+#if defined(QAT_ENABLE_RNG)
 static int IntelQaDrbgClose(WC_ASYNC_DEV* dev);
+#endif
 
 extern Cpa32U osalLogLevelSet(Cpa32U level);
 
@@ -154,7 +185,25 @@ static void IntelQaStopPollingThread(WC_ASYNC_DEV* dev)
 /* -------------------------------------------------------------------------- */
 /* Buffer Helpers */
 /* -------------------------------------------------------------------------- */
-#if defined(HAVE_ECC) || !defined(NO_DH)
+#if defined(HAVE_ECC) || !defined(NO_DH) || !defined(NO_RSA)
+static WC_INLINE int IntelQaAllocFlatBuffer(CpaFlatBuffer* buf, int size, void* heap)
+{
+    if (buf == NULL || size <= 0)
+        return BAD_FUNC_ARG;
+    buf->pData = (byte*)XMALLOC(size, heap, DYNAMIC_TYPE_ASYNC_NUMA);
+    if (buf->pData == NULL)
+        return MEMORY_E;
+    buf->dataLenInBytes = size;
+    return 0;
+}
+static WC_INLINE void IntelQaFreeFlatBuffer(CpaFlatBuffer* buf, void* heap)
+{
+    if (buf && buf->pData) {
+        XFREE(buf->pData, heap, DYNAMIC_TYPE_ASYNC_NUMA);
+        buf->pData = NULL;
+        buf->dataLenInBytes = 0;
+    }
+}
 static WC_INLINE int IntelQaBigIntToFlatBuffer(WC_BIGINT* src, CpaFlatBuffer* dst)
 {
     if (src == NULL || src->buf == NULL || dst == NULL) {
@@ -369,10 +418,15 @@ int IntelQaHardwareStart(const char* process_name, int limitDevAccess)
         /* capabilities */
         status = cpaCySymQueryCapabilities(g_cyInstances[i], &capabilities);
         if (status == CPA_STATUS_SUCCESS) {
+            g_qatCapabilities.supPartial = capabilities.partialPacketSupported;
             if (capabilities.partialPacketSupported != CPA_TRUE) {
                 printf("Warning: QAT does not support partial packets!\n");
             }
         }
+    #ifdef QAT_V2
+        g_qatCapabilities.supSha3 = CPA_BITMAP_BIT_TEST(capabilities.hashes,
+            CPA_CY_SYM_HASH_SHA3_256) ? 1 : 0;
+    #endif
 
     #ifdef QAT_DEBUG
         printf("Inst %u, Node: %d, Affin: %u, Dev: %u, Accel %u",
@@ -523,6 +577,7 @@ static int IntelQaDevIsHash(WC_ASYNC_DEV* dev)
         case WOLFSSL_ASYNC_MARKER_SHA224:
         case WOLFSSL_ASYNC_MARKER_SHA:
         case WOLFSSL_ASYNC_MARKER_MD5:
+        case WOLFSSL_ASYNC_MARKER_SHA3:
             isHash = 1;
             break;
     }
@@ -564,6 +619,7 @@ static int IntelQaDevIsSym(WC_ASYNC_DEV* dev)
         case WOLFSSL_ASYNC_MARKER_SHA224:
         case WOLFSSL_ASYNC_MARKER_SHA:
         case WOLFSSL_ASYNC_MARKER_MD5:
+        case WOLFSSL_ASYNC_MARKER_SHA3:
             isSym = 1;
             break;
     }
@@ -585,9 +641,11 @@ void IntelQaClose(WC_ASYNC_DEV* dev)
             IntelQaSymClose(dev, 1);
         }
     #endif
+    #if defined(QAT_ENABLE_RNG)
         if (dev->marker == WOLFSSL_ASYNC_MARKER_RNG) {
             IntelQaDrbgClose(dev);
         }
+    #endif
 
     #ifdef QAT_USE_POLLING_THREAD
         IntelQaStopPollingThread(dev);
@@ -646,12 +704,15 @@ int IntelQaDevCopy(WC_ASYNC_DEV* src, WC_ASYNC_DEV* dst)
     if (isHash) {
         /* need to duplicate tmpIn */
         if (src->qat.op.hash.tmpIn) {
-            dst->qat.op.hash.tmpIn = XMALLOC(src->qat.op.hash.blockSize, src->heap,
-                DYNAMIC_TYPE_ASYNC_NUMA);
+            dst->qat.op.hash.tmpIn = XMALLOC(src->qat.op.hash.tmpInBufSz,
+                src->heap, DYNAMIC_TYPE_ASYNC_NUMA);
             if (dst->qat.op.hash.tmpIn == NULL) {
                 return MEMORY_E;
             }
-            XMEMCPY(dst->qat.op.hash.tmpIn, src->qat.op.hash.tmpIn, src->qat.op.hash.tmpInSz);
+            XMEMCPY(dst->qat.op.hash.tmpIn, src->qat.op.hash.tmpIn,
+                src->qat.op.hash.tmpInSz);
+            dst->qat.op.hash.tmpInSz = src->qat.op.hash.tmpInSz;
+            dst->qat.op.hash.tmpInBufSz = src->qat.op.hash.tmpInBufSz;
         }
     }
 #endif /* QAT_ENABLE_HASH */
@@ -794,6 +855,563 @@ static WC_INLINE void IntelQaOpInit(WC_ASYNC_DEV* dev, IntelQaFreeFunc freeFunc)
 
 #ifndef NO_RSA
 
+#ifdef WOLFSSL_KEY_GEN
+static void IntelQaGenPrimeFree(WC_ASYNC_DEV* dev)
+{
+    CpaCyPrimeTestOpData* opData = dev->qat.op.prime_gen.opData;
+    CpaFlatBuffer* primeCandidates = dev->qat.op.prime_gen.primeCandidates;
+    byte* pMillerRabinData = dev->qat.op.prime_gen.pMillerRabinData;
+
+    if (opData) {
+        XFREE(opData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+        dev->qat.op.prime_gen.opData = NULL;
+    }
+    if (primeCandidates) {
+        int i;
+        for (i = 0; i < QAT_PRIME_GEN_TRIES; i++) {
+            if (primeCandidates[i].pData) {
+                XFREE(primeCandidates[i].pData, dev->heap,
+                    DYNAMIC_TYPE_ASYNC_NUMA);
+                primeCandidates[i].pData = NULL;
+                primeCandidates[i].dataLenInBytes = 0;
+            }
+        }
+        XFREE(primeCandidates, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+        dev->qat.op.prime_gen.primeCandidates = NULL;
+    }
+    if (pMillerRabinData) {
+        XFREE(pMillerRabinData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+        dev->qat.op.prime_gen.pMillerRabinData = NULL;
+    }
+}
+
+static void IntelQaGenPrimeCallback(void *pCallbackTag,
+    CpaStatus status, void *pOpData, CpaBoolean testPassed)
+{
+    WC_ASYNC_DEV* dev = (WC_ASYNC_DEV*)pCallbackTag;
+    CpaCyPrimeTestOpData* opData = (CpaCyPrimeTestOpData*)pOpData;
+    int opIndex = 0;
+    int testStatus = QAT_PRIME_CHK_STATUS_FAILED;
+
+    /* calculate index based on opDate pointer offset */
+    if (dev->qat.op.prime_gen.opData && opData) {
+        byte* srcop = (byte*)dev->qat.op.prime_gen.opData;
+        byte* curop = (byte*)opData;
+        size_t offset;
+        if (srcop <= curop) {
+            offset = (size_t)curop - (size_t)srcop;
+            offset /= sizeof(CpaCyPrimeTestOpData);
+            if (offset < QAT_PRIME_GEN_TRIES)
+                opIndex = (int)offset;
+        }
+    }
+
+#ifdef QAT_DEBUG
+    printf("IntelQaGenPrimeCallback: dev %p, opIndex %d, status %d, testPassed %d\n",
+        dev, opIndex, status, testPassed);
+#endif
+
+    if (status == CPA_STATUS_SUCCESS) {
+        testStatus = (testPassed == CPA_TRUE) ?
+            QAT_PRIME_CHK_STATUS_PASSED :
+            QAT_PRIME_CHK_STATUS_FAILED;
+    }
+
+    dev->qat.op.prime_gen.testStatus[opIndex] = testStatus;
+}
+
+#ifndef QAT_PRIME_CHECK_TIMEOUT
+    /* times to wait in retry for operations */
+    #define QAT_PRIME_CHECK_TIMEOUT 100000
+#endif
+int IntelQaGenPrime(WC_ASYNC_DEV* dev, WC_RNG* rng, byte* primeBuf,
+    word32 primeSz)
+{
+    int ret = 0, retryCount = 0, i, attempt;
+    CpaStatus status = CPA_STATUS_SUCCESS;
+    CpaCyPrimeTestOpData* opData = NULL;
+    CpaFlatBuffer* primeCandidates = NULL;
+    byte* pMillerRabinData = NULL;
+    CpaFlatBuffer millerRabins;
+    CpaCyPrimeTestCbFunc callback = IntelQaGenPrimeCallback;
+    CpaBoolean testPassed = CPA_FALSE;
+
+    if (dev == NULL || rng == NULL || primeBuf == NULL || primeSz < 64) {
+        return BAD_FUNC_ARG;
+    }
+
+#ifdef QAT_DEBUG
+    printf("IntelQaGenPrime: dev %p, sz %d\n", dev, primeSz);
+#endif
+
+    /* generate operation data and prime candidates */
+    opData = (CpaCyPrimeTestOpData*)XMALLOC(
+        sizeof(CpaCyPrimeTestOpData) * QAT_PRIME_GEN_TRIES,
+        dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+    dev->qat.op.prime_gen.opData = opData;
+    primeCandidates = (CpaFlatBuffer*)XMALLOC(
+        sizeof(CpaFlatBuffer) * QAT_PRIME_GEN_TRIES,
+        dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+    dev->qat.op.prime_gen.primeCandidates = primeCandidates;
+    if (opData == NULL || primeCandidates == NULL) {
+        ret = MEMORY_E; goto exit;
+    }
+    XMEMSET(opData, 0, sizeof(CpaCyPrimeTestOpData) * QAT_PRIME_GEN_TRIES);
+    XMEMSET(primeCandidates, 0, sizeof(CpaFlatBuffer) * QAT_PRIME_GEN_TRIES);
+    for (i = 0; i < QAT_PRIME_GEN_TRIES; i++) {
+        primeCandidates[i].pData = (byte*)XMALLOC(primeSz, dev->heap,
+            DYNAMIC_TYPE_ASYNC_NUMA);
+        if (primeCandidates[i].pData == NULL) {
+            ret = MEMORY_E; goto exit;
+        }
+        primeCandidates[i].dataLenInBytes = primeSz;
+    }
+
+    /* generate miller rabbin data */
+    pMillerRabinData = (byte*)XMALLOC(primeSz * QAT_PRIME_GEN_MR_ROUNDS,
+        dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+    dev->qat.op.prime_gen.pMillerRabinData = pMillerRabinData;
+    if (pMillerRabinData == NULL) {
+        ret = MEMORY_E; goto exit;
+    }
+
+    ret = wc_RNG_GenerateBlock(rng, pMillerRabinData,
+        primeSz * QAT_PRIME_GEN_MR_ROUNDS);
+    if (ret != 0)
+        goto exit;
+
+    /* make sure each miller rabbin number is greater than 1 */
+    for (i = 0; i < QAT_PRIME_GEN_MR_ROUNDS; i++) {
+        word32 byteCheck = primeSz - 1;
+        byte* round = &pMillerRabinData[i * primeSz];
+        if (round[byteCheck] <= 1) {
+            ret = wc_RNG_GenerateBlock(rng, &round[byteCheck], 1);
+            if (ret != 0)
+                goto exit;
+            if (round[byteCheck] <= 1)
+                round[byteCheck] += 2;
+        }
+    }
+    millerRabins.pData = pMillerRabinData;
+    millerRabins.dataLenInBytes = primeSz * QAT_PRIME_GEN_MR_ROUNDS;
+
+    /* populate operation data */
+    for (i = 0; i < QAT_PRIME_GEN_TRIES; i++) {
+        opData[i].primeCandidate = primeCandidates[i];
+        opData[i].performGcdTest = CPA_TRUE;
+        opData[i].performFermatTest = CPA_TRUE;
+        opData[i].numMillerRabinRounds = QAT_PRIME_GEN_MR_ROUNDS;
+        opData[i].millerRabinRandomInput = millerRabins;
+        opData[i].performLucasTest = CPA_TRUE;
+    }
+
+    /* store info needed for output */
+    dev->qat.out = primeBuf;
+    dev->qat.outLen = primeSz;
+    IntelQaOpInit(dev, IntelQaGenPrimeFree);
+
+    for (attempt = 0; attempt < QAT_PRIME_GEN_RETRIES; attempt++) {
+        int expectedDone, doneCount, primePassIndex, errorCount;
+        byte* primeData = primeCandidates[0].pData;
+        /* Generate primeCandidates */
+        ret = wc_RNG_GenerateBlock(rng, primeData, primeSz);
+        if (ret != 0)
+            goto exit;
+        /* prime lower bound has the MSB set, set it in candidate */
+        primeData[0] |= 0x80;
+        /* make candidate odd */
+        primeData[primeSz-1] |= 0x01;
+
+        /* create candidates that are incremented by two */
+        for (i = 1; i < QAT_PRIME_GEN_TRIES; i++) {
+            word32 byteCheck = primeSz - 1;
+            primeData = primeCandidates[i].pData;
+            XMEMCPY(primeData,
+                primeCandidates[i-1].pData,
+                primeCandidates[i-1].dataLenInBytes);
+
+            if (primeData[byteCheck] != 0xFF) {
+                primeData[byteCheck] += 2;
+            }
+            else {
+                /* if rollover occurred increment high order bytes */
+                /* increment by 1 does not affect odd/even */
+                int j;
+                for (j = primeSz - 2; j >= 0; j--) {
+                    if (primeData[i] != 0xFF) {
+                        primeData[i] += 1;
+                        break;
+                    }
+                    else {
+                        primeData[i] = 0;
+                    }
+                }
+            }
+        }
+
+        /* make sure miller rabbin must be less than prime candidate */
+        for (i = 0; i < QAT_PRIME_GEN_MR_ROUNDS; i++) {
+            byte* mrData = pMillerRabinData + (i * primeSz);
+            int j;
+            for (j = 0; j < (int)primeSz; j++) {
+                /* if primeData is less then mrData, and primeData is not 0,
+                 * then make mrData to be smaller than primeData, and we are done */
+                if ((primeData[j] <= mrData[j]) && primeData[j] != 0) {
+                    mrData[j] = primeData[j] - 1;
+                    break;
+                }
+                /* if primeData is 0 then mrData needs to be zero and we check
+                 * the next index */
+                else if (primeData[j] == 0) {
+                    mrData[j] = 0;
+                }
+                /* primeData is smaller than mrData so we are done */
+                else {
+                    break;
+                }
+            }
+        }
+
+        /* setup and run prime tests */
+        XMEMSET(dev->qat.op.prime_gen.testStatus, 0,
+            sizeof(dev->qat.op.prime_gen.testStatus));
+        retryCount = 0;
+        expectedDone = 0;
+        errorCount = 0;
+        for (i = 0; i < QAT_PRIME_GEN_TRIES; i++) {
+            /* perform prime test */
+            do {
+                status = cpaCyPrimeTest(dev->qat.handle,
+                                        callback,
+                                        dev,
+                                        &opData[i],
+                                        &testPassed);
+                if (status == CPA_STATUS_RETRY) {
+                    IntelQaPoll(dev);
+                }
+            } while (status == CPA_STATUS_RETRY &&
+                retryCount++ < QAT_PRIME_CHECK_TIMEOUT);
+
+            /* handle error */
+            if (status != CPA_STATUS_SUCCESS) {
+                errorCount++;
+                break;
+            }
+            expectedDone++;
+        }
+
+        /* use blocking polling, till all have completed */
+        retryCount = 0;
+        primePassIndex = -1;
+        do {
+            IntelQaPoll(dev);
+
+            /* tally results */
+            doneCount = 0;
+            for (i = 0; i < expectedDone; i++) {
+                byte* testStatus = &dev->qat.op.prime_gen.testStatus[i];
+                if (*testStatus != QAT_PRIME_CHK_STATUS_INIT) {
+                    doneCount++;
+                    /* Track index of first passed operation */
+                    if (primePassIndex == -1 &&
+                             *testStatus == QAT_PRIME_CHK_STATUS_PASSED)
+                        primePassIndex = i;
+                    else if (*testStatus == QAT_PRIME_CHK_STATUS_ERROR)
+                        errorCount++;
+                }
+            }
+
+            /* determine if all prime tests are done */
+            if (doneCount == expectedDone) {
+                break;
+            }
+
+        #ifndef WC_NO_ASYNC_THREADING
+            wc_AsyncThreadYield();
+        #endif
+        } while (retryCount++ < QAT_PRIME_CHECK_TIMEOUT);
+        if (retryCount == QAT_PRIME_CHECK_TIMEOUT) {
+        #ifdef QAT_DEBUG
+            printf("cpaCyPrimeTest wait timeout! dev %p\n", dev);
+        #endif
+            errorCount++;
+        }
+
+        /* check if we found a prime */
+        if (primePassIndex != -1 && primePassIndex < QAT_PRIME_GEN_TRIES) {
+            ret = 0;
+            XMEMCPY(primeBuf, primeCandidates[primePassIndex].pData, primeSz);
+            break; /* done with success */
+        }
+
+        /* handle failure */
+        if (errorCount != 0) {
+            ret = ASYNC_OP_E;
+            break; /* done with failure */
+        }
+
+    #ifdef QAT_DEBUG
+        printf("cpaCyPrimeTest attempt %d\n", attempt);
+    #endif
+    } /* for (attempt) */
+
+exit:
+
+    if (ret != 0) {
+        printf("cpaCyPrimeTest failed! dev %p, status %d, ret %d\n",
+            dev, status, ret);
+    }
+
+    IntelQaGenPrimeFree(dev);
+
+    return ret;
+}
+
+
+static void IntelQaRsaKeyGenFree(WC_ASYNC_DEV* dev)
+{
+    CpaCyRsaPrivateKey* privateKey = &dev->qat.op.rsa_keygen.privateKey;
+
+    /* This one is not owned by RsaKey */
+    IntelQaFreeFlatBuffer(&privateKey->privateKeyRep1.modulusN, dev->heap);
+
+    /* free remaining on failures only */
+    /* ownership of these buffers goes to RsaKey */
+    if (dev->qat.ret != 0) {
+        CpaCyRsaKeyGenOpData* opData = &dev->qat.op.rsa_keygen.opData;
+        CpaCyRsaPublicKey* publicKey = &dev->qat.op.rsa_keygen.publicKey;
+
+        IntelQaFreeFlatBuffer(&publicKey->modulusN, dev->heap);
+        IntelQaFreeFlatBuffer(&publicKey->publicExponentE, dev->heap);
+
+        IntelQaFreeFlatBuffer(&privateKey->privateKeyRep1.privateExponentD, dev->heap);
+        IntelQaFreeFlatBuffer(&privateKey->privateKeyRep2.prime1P, dev->heap);
+        IntelQaFreeFlatBuffer(&privateKey->privateKeyRep2.prime2Q, dev->heap);
+        IntelQaFreeFlatBuffer(&privateKey->privateKeyRep2.exponent1Dp, dev->heap);
+        IntelQaFreeFlatBuffer(&privateKey->privateKeyRep2.exponent2Dq, dev->heap);
+        IntelQaFreeFlatBuffer(&privateKey->privateKeyRep2.coefficientQInv, dev->heap);
+
+        (void)opData;
+    }
+}
+
+static void IntelQaRsaKeyGenCallback(void *pCallbackTag,
+        CpaStatus status, void *pKeyGenOpData, CpaCyRsaPrivateKey *pPrivateKey,
+        CpaCyRsaPublicKey *pPublicKey)
+{
+    WC_ASYNC_DEV* dev = (WC_ASYNC_DEV*)pCallbackTag;
+    CpaCyRsaKeyGenOpData* opData = (CpaCyRsaKeyGenOpData*)pKeyGenOpData;
+    int ret = ASYNC_OP_E;
+
+#ifdef QAT_DEBUG
+    printf("IntelQaRsaKeyGenCallback: dev %p, status %d\n", dev, status);
+#endif
+
+    if (status == CPA_STATUS_SUCCESS) {
+        RsaKey* key = dev->qat.op.rsa_keygen.rsakey;
+        if (key) {
+            /* Populate RsaKey Parameters */
+            /* raw BigInt buffer ownership is transfered to RsaKey */
+            /* cleanup is handled in wc_FreeRsaKey */
+
+            /* modulusN */
+            ret = IntelQaFlatBufferToBigInt(
+                    &pPublicKey->modulusN, &key->n.raw);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(&key->n,
+                    key->n.raw.buf, key->n.raw.len);
+
+            /* publicExponentE */
+            if (ret == 0)
+                ret = IntelQaFlatBufferToBigInt(
+                    &pPublicKey->publicExponentE, &key->e.raw);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(&key->e,
+                    key->e.raw.buf, key->e.raw.len);
+
+            /* privateExponentD */
+            if (ret == 0)
+                ret = IntelQaFlatBufferToBigInt(
+                    &pPrivateKey->privateKeyRep1.privateExponentD, &key->d.raw);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(&key->d,
+                    key->d.raw.buf, key->d.raw.len);
+
+            /* prime1P */
+            if (ret == 0)
+                ret = IntelQaFlatBufferToBigInt(
+                    &pPrivateKey->privateKeyRep2.prime1P, &key->p.raw);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(&key->p,
+                    key->p.raw.buf, key->p.raw.len);
+
+            /* prime2Q */
+            if (ret == 0)
+                ret = IntelQaFlatBufferToBigInt(
+                    &pPrivateKey->privateKeyRep2.prime2Q, &key->q.raw);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(&key->q,
+                    key->q.raw.buf, key->q.raw.len);
+
+            /* exponent1Dp */
+            if (ret == 0)
+                ret = IntelQaFlatBufferToBigInt(
+                    &pPrivateKey->privateKeyRep2.exponent2Dq, &key->dP.raw);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(&key->dP,
+                    key->dP.raw.buf, key->dP.raw.len);
+
+            /* exponent2Dq */
+            if (ret == 0)
+                ret = IntelQaFlatBufferToBigInt(
+                    &pPrivateKey->privateKeyRep2.exponent1Dp, &key->dQ.raw);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(&key->dQ,
+                    key->dQ.raw.buf, key->dQ.raw.len);
+
+            /* coefficientQInv */
+            if (ret == 0)
+                ret = IntelQaFlatBufferToBigInt(
+                    &pPrivateKey->privateKeyRep2.coefficientQInv, &key->u.raw);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(&key->u,
+                    key->u.raw.buf, key->u.raw.len);
+
+            /* mark as private key */
+            if (ret == 0)
+                key->type = RSA_PRIVATE;
+        }
+    }
+    (void)opData;
+
+    /* set return code to mark complete */
+    dev->qat.ret = ret;
+}
+
+int IntelQaRsaKeyGen(WC_ASYNC_DEV* dev, RsaKey* key, int keyBits, long e,
+    WC_RNG* rng)
+{
+    int ret = 0, retryCount = 0;
+    CpaStatus status = CPA_STATUS_SUCCESS;
+    CpaFlatBuffer prime1P;
+    CpaFlatBuffer prime2Q;
+    CpaCyRsaKeyGenOpData* opData = NULL;
+    CpaCyRsaPrivateKey* privateKey = NULL;
+    CpaCyRsaPublicKey* publicKey = NULL;
+    CpaCyRsaKeyGenCbFunc callback = IntelQaRsaKeyGenCallback;
+    int keySz = keyBits/8;
+    int primeSz = keySz/2; /* P & Q */
+
+    if (dev == NULL || key == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+#ifdef QAT_DEBUG
+    printf("IntelQaRsaKeyGen: dev %p, keyBits %d\n", dev, keyBits);
+#endif
+
+    /* allocate and generate 2 primes (P/Q) */
+    XMEMSET(&prime1P, 0, sizeof(prime1P));
+    XMEMSET(&prime2Q, 0, sizeof(prime2Q));
+    ret = IntelQaAllocFlatBuffer(&prime1P, primeSz, dev->heap);
+    if (ret == 0)
+        ret = IntelQaGenPrime(dev, rng, prime1P.pData, prime1P.dataLenInBytes);
+    if (ret == 0)
+        ret = IntelQaAllocFlatBuffer(&prime2Q, primeSz, dev->heap);
+    if (ret == 0)
+        ret = IntelQaGenPrime(dev, rng, prime2Q.pData, prime2Q.dataLenInBytes);
+    if (ret != 0) {
+        IntelQaFreeFlatBuffer(&prime1P, dev->heap);
+        IntelQaFreeFlatBuffer(&prime2Q, dev->heap);
+        return ret;
+    }
+
+    /* setup key generation operation */
+    opData = &dev->qat.op.rsa_keygen.opData;
+    publicKey = &dev->qat.op.rsa_keygen.publicKey;
+    privateKey = &dev->qat.op.rsa_keygen.privateKey;
+
+    /* init variables */
+    XMEMSET(opData, 0, sizeof(CpaCyRsaDecryptOpData));
+    XMEMSET(publicKey, 0, sizeof(CpaCyRsaPublicKey));
+    XMEMSET(privateKey, 0, sizeof(CpaCyRsaPrivateKey));
+
+    /* setup private key */
+    privateKey->version = CPA_CY_RSA_VERSION_TWO_PRIME;
+    privateKey->privateKeyRepType = CPA_CY_RSA_PRIVATE_KEY_REP_TYPE_2;
+    ret  = IntelQaAllocFlatBuffer(&privateKey->privateKeyRep1.modulusN,
+        keySz, dev->heap);
+    ret += IntelQaAllocFlatBuffer(&privateKey->privateKeyRep1.privateExponentD,
+        keySz, dev->heap);
+    ret += IntelQaAllocFlatBuffer(&privateKey->privateKeyRep2.exponent1Dp,
+        primeSz, dev->heap);
+    ret += IntelQaAllocFlatBuffer(&privateKey->privateKeyRep2.exponent2Dq,
+        primeSz, dev->heap);
+    ret += IntelQaAllocFlatBuffer(&privateKey->privateKeyRep2.coefficientQInv,
+        primeSz, dev->heap);
+    if (ret != 0) {
+        ret = MEMORY_E; goto exit;
+    }
+
+    /* setup public key */
+    ret  = IntelQaAllocFlatBuffer(&publicKey->modulusN, keySz, dev->heap);
+    ret += IntelQaAllocFlatBuffer(&publicKey->publicExponentE, sizeof(long),
+        dev->heap);
+    if (ret != 0) {
+        ret = MEMORY_E; goto exit;
+    }
+
+    /* populate exponent */
+    publicKey->publicExponentE.pData[3] = (e >> 24) & 0xFF;
+    publicKey->publicExponentE.pData[2] = (e >> 16) & 0xFF;
+    publicKey->publicExponentE.pData[1] = (e >> 8)  & 0xFF;
+    publicKey->publicExponentE.pData[0] =  e        & 0xFF;
+    publicKey->publicExponentE.dataLenInBytes =
+        publicKey->publicExponentE.pData[3] ? 4 :
+        publicKey->publicExponentE.pData[2] ? 3 :
+        publicKey->publicExponentE.pData[1] ? 2 :
+        publicKey->publicExponentE.pData[0] ? 1 : 0;
+
+    /* populate primes P and Q */
+    privateKey->privateKeyRep2.prime1P = prime1P;
+    privateKey->privateKeyRep2.prime2Q = prime2Q;
+
+    /* setup operation data */
+    opData->version = CPA_CY_RSA_VERSION_TWO_PRIME;
+    opData->privateKeyRepType = CPA_CY_RSA_PRIVATE_KEY_REP_TYPE_2;
+    opData->modulusLenInBytes = keySz;
+    opData->prime1P = privateKey->privateKeyRep2.prime1P;
+    opData->prime2Q = privateKey->privateKeyRep2.prime2Q;
+    opData->publicExponentE = publicKey->publicExponentE;
+
+    /* parameters required for output callback */
+    dev->qat.op.rsa_keygen.rsakey = key;
+    IntelQaOpInit(dev, IntelQaRsaKeyGenFree);
+
+    /* perform RSA key generation */
+    do {
+        status = cpaCyRsaGenKey(dev->qat.handle,
+                                callback,
+                                dev,
+                                opData,
+                                privateKey,
+                                publicKey);
+    } while (IntelQaHandleCpaStatus(dev, status, &ret, 0,
+        callback, &retryCount));
+
+exit:
+
+    if (ret != 0) {
+        printf("cpaCyRsaGenKey failed! dev %p, status %d, ret %d\n",
+            dev, status, ret);
+    }
+
+    IntelQaRsaKeyGenFree(dev);
+
+    return ret;
+}
+#endif /* WOLFSSL_KEY_GEN */
+
 static void IntelQaRsaPrivateFree(WC_ASYNC_DEV* dev)
 {
     CpaCyRsaDecryptOpData* opData = &dev->qat.op.rsa_priv.opData;
@@ -804,8 +1422,9 @@ static void IntelQaRsaPrivateFree(WC_ASYNC_DEV* dev)
             XFREE(opData->inputData.pData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
             opData->inputData.pData = NULL;
         }
-
-        XMEMSET(opData->pRecipientPrivateKey, 0, sizeof(CpaCyRsaPrivateKey));
+        if (opData->pRecipientPrivateKey) {
+            XMEMSET(opData->pRecipientPrivateKey, 0, sizeof(CpaCyRsaPrivateKey));
+        }
         XMEMSET(opData, 0, sizeof(CpaCyRsaDecryptOpData));
     }
     if (outBuf) {
@@ -873,6 +1492,10 @@ int IntelQaRsaPrivate(WC_ASYNC_DEV* dev,
             outLen == NULL) {
         return BAD_FUNC_ARG;
     }
+
+#ifdef QAT_DEBUG
+    printf("IntelQaRsaPrivate: dev %p, in %p (%d), out %p\n", dev, in, inLen, out);
+#endif
 
 	/* setup operation */
 	opData = &dev->qat.op.rsa_priv.opData;
@@ -969,6 +1592,10 @@ int IntelQaRsaCrtPrivate(WC_ASYNC_DEV* dev,
             outLen == NULL) {
         return BAD_FUNC_ARG;
     }
+
+#ifdef QAT_DEBUG
+    printf("IntelQaRsaCrtPrivate: dev %p, in %p (%d), out %p\n", dev, in, inLen, out);
+#endif
 
     /* setup operation */
     opData = &dev->qat.op.rsa_priv.opData;
@@ -1126,6 +1753,10 @@ int IntelQaRsaPublic(WC_ASYNC_DEV* dev,
         return BAD_FUNC_ARG;
     }
 
+#ifdef QAT_DEBUG
+    printf("IntelQaRsaPublic: dev %p, in %p (%d), out %p\n", dev, in, inLen, out);
+#endif
+
 	/* setup operation */
 	opData = &dev->qat.op.rsa_pub.opData;
     outBuf = &dev->qat.op.rsa_pub.outBuf;
@@ -1269,6 +1900,11 @@ int IntelQaRsaExptMod(WC_ASYNC_DEV* dev,
         return BAD_FUNC_ARG;
     }
 
+#ifdef QAT_DEBUG
+    printf("IntelQaRsaExptMod: dev %p, in %p (%d), out %p\n",
+        dev, in, inLen, out);
+#endif
+
     /* setup operation */
     opData = &dev->qat.op.rsa_modexp.opData;
     target = &dev->qat.op.rsa_modexp.target;
@@ -1375,7 +2011,7 @@ static int IntelQaSymOpen(WC_ASYNC_DEV* dev, CpaCySymSessionSetupData* setup,
         printf("IntelQaSymOpen: InitSession dev %p, symCtx %p\n", dev, ctx->symCtx);
     #endif
 
-        /* open symetric session */
+        /* open symmetric session */
         status = cpaCySymInitSession(dev->qat.handle, callback, setup, ctx->symCtx);
         if (status != CPA_STATUS_SUCCESS) {
             printf("cpaCySymInitSession failed! dev %p, status %d\n", dev, status);
@@ -1892,6 +2528,14 @@ static int IntelQaSymHashGetInfo(CpaCySymHashAlgorithm hashAlgorithm,
             digestSize = WC_SHA512_DIGEST_SIZE;
         #endif
             break;
+    #ifdef QAT_V2
+        case CPA_CY_SYM_HASH_SHA3_256:
+        #ifdef WOLFSSL_SHA3
+            blockSize = WC_SHA3_256_BLOCK_SIZE;
+            digestSize = WC_SHA3_256_DIGEST_SIZE;
+        #endif
+            break;
+    #endif
 
         /* not supported */
         case CPA_CY_SYM_HASH_NONE:
@@ -1903,6 +2547,9 @@ static int IntelQaSymHashGetInfo(CpaCySymHashAlgorithm hashAlgorithm,
         case CPA_CY_SYM_HASH_AES_CMAC:
         case CPA_CY_SYM_HASH_AES_GMAC:
         case CPA_CY_SYM_HASH_AES_CBC_MAC:
+    #ifdef QAT_V2
+        case CPA_CY_SYM_HASH_ZUC_EIA3:
+    #endif
         default:
             return -1;
     }
@@ -1952,7 +2599,7 @@ static void IntelQaSymHashFree(WC_ASYNC_DEV* dev)
         }
         dev->qat.op.hash.tmpIn = NULL;
         dev->qat.op.hash.tmpInSz = 0;
-        dev->qat.op.hash.blockSize = 0;
+        dev->qat.op.hash.tmpInBufSz = 0;
 
         if (ctx->isCopy || ctx->symCtx != ctx->symCtxSrc) {
             doFree = 1;
@@ -2009,7 +2656,188 @@ static void IntelQaSymHashCallback(void *pCallbackTag, CpaStatus status,
 
 /* For hash update call with out == NULL */
 /* For hash final call with out != NULL */
-static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
+/* All input is cached in memory or only sent to hardware on final */
+#ifndef QAT_HASH_ALLOC_BLOCK_SZ
+    #define QAT_HASH_ALLOC_BLOCK_SZ 1024
+#endif
+static int IntelQaSymHashCache(WC_ASYNC_DEV* dev, byte* out, const byte* in,
+    word32 inOutSz, CpaCySymHashMode hashMode,
+    CpaCySymHashAlgorithm hashAlgorithm,
+
+    /* For HMAC auth mode only */
+    Cpa8U* authKey, Cpa32U authKeyLenInBytes)
+{
+    int ret, retryCount = 0;
+    CpaStatus status = CPA_STATUS_SUCCESS;
+    CpaCySymOpData* opData = NULL;
+    CpaCySymCbFunc callback = IntelQaSymHashCallback;
+    CpaBufferList* srcList = NULL;
+    Cpa32U bufferListSize = 0;
+    Cpa8U* digestBuf = NULL;
+    Cpa32U metaSize = 0;
+    Cpa32U totalMsgSz = 0;
+    Cpa32U blockSize;
+    Cpa32U digestSize;
+    CpaCySymPacketType packetType;
+    IntelQaSymCtx* ctx;
+    CpaCySymSessionSetupData setup;
+    const int bufferCount = 1;
+
+    ret = IntelQaSymHashGetInfo(hashAlgorithm, &blockSize, &digestSize);
+    if (ret != 0) {
+        return BAD_FUNC_ARG;
+    }
+
+#ifdef QAT_DEBUG
+    printf("IntelQaSymHashCache: dev %p, out %p, in %p, inOutSz %d, mode %d"
+        ", algo %d, digSz %d, blkSz %d\n",
+        dev, out, in, inOutSz, hashMode, hashAlgorithm, digestSize, blockSize);
+#endif
+
+    ctx = &dev->qat.op.hash.ctx;
+
+    /* handle input processing */
+    if (in) {
+        if (dev->qat.op.hash.tmpIn == NULL) {
+            dev->qat.op.hash.tmpInSz = 0;
+            dev->qat.op.hash.tmpInBufSz = (inOutSz + QAT_HASH_ALLOC_BLOCK_SZ - 1)
+                & ~(QAT_HASH_ALLOC_BLOCK_SZ - 1);
+            if (dev->qat.op.hash.tmpInBufSz == 0)
+                dev->qat.op.hash.tmpInBufSz = QAT_HASH_ALLOC_BLOCK_SZ;
+            dev->qat.op.hash.tmpIn = (byte*)XMALLOC(dev->qat.op.hash.tmpInBufSz,
+                dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+            if (dev->qat.op.hash.tmpIn == NULL) {
+                ret = MEMORY_E; goto exit;
+            }
+        }
+        /* determine if we need to grow buffer */
+        else if ((dev->qat.op.hash.tmpInSz + inOutSz) >
+                                                dev->qat.op.hash.tmpInBufSz) {
+            byte* oldIn = dev->qat.op.hash.tmpIn;
+            dev->qat.op.hash.tmpInBufSz = (dev->qat.op.hash.tmpInSz + inOutSz +
+                QAT_HASH_ALLOC_BLOCK_SZ - 1) & ~(QAT_HASH_ALLOC_BLOCK_SZ - 1);
+
+             dev->qat.op.hash.tmpIn = (byte*)XMALLOC(dev->qat.op.hash.tmpInBufSz,
+                dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+            if (dev->qat.op.hash.tmpIn == NULL) {
+                ret = MEMORY_E; goto exit;
+            }
+            XMEMCPY(dev->qat.op.hash.tmpIn, oldIn, dev->qat.op.hash.tmpInSz);
+            XFREE(oldIn, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+        }
+
+        /* copy input to new buffer */
+        XMEMCPY(&dev->qat.op.hash.tmpIn[dev->qat.op.hash.tmpInSz], in, inOutSz);
+        dev->qat.op.hash.tmpInSz += inOutSz;
+
+        ret = 0; /* success */
+        goto exit;
+    }
+
+    /* handle output processing */
+    packetType = CPA_CY_SYM_PACKET_TYPE_FULL;
+
+    /* get meta size */
+    status = cpaCyBufferListGetMetaSize(dev->qat.handle, bufferCount, &metaSize);
+    if (status != CPA_STATUS_SUCCESS && metaSize <= 0) {
+        ret = BUFFER_E; goto exit;
+    }
+
+    /* allocate buffer list */
+    bufferListSize = sizeof(CpaBufferList) +
+        (bufferCount * sizeof(CpaFlatBuffer)) + metaSize;
+    srcList = XMALLOC(bufferListSize, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+    if (srcList == NULL) {
+        ret = MEMORY_E; goto exit;
+    }
+    dev->qat.op.hash.srcList = srcList;
+    XMEMSET(srcList, 0, bufferListSize);
+    srcList->pBuffers = (CpaFlatBuffer*)(
+        (byte*)srcList + sizeof(CpaBufferList));
+    srcList->pPrivateMetaData = (byte*)srcList + sizeof(CpaBufferList) +
+        (bufferCount * sizeof(CpaFlatBuffer));
+
+    srcList->numBuffers = bufferCount;
+    srcList->pBuffers[0].dataLenInBytes = dev->qat.op.hash.tmpInSz;
+    srcList->pBuffers[0].pData = dev->qat.op.hash.tmpIn;
+    totalMsgSz = dev->qat.op.hash.tmpInSz;
+
+    dev->qat.op.hash.tmpInSz = 0;
+    dev->qat.op.hash.tmpInBufSz = 0;
+    dev->qat.op.hash.tmpIn = NULL;
+
+    /* build output */
+    if (out) {
+        /* use blockSize for alloc, but we are only returning digestSize */
+        digestBuf = XMALLOC(blockSize, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+        if (digestBuf == NULL) {
+            ret = MEMORY_E; goto exit;
+        }
+    }
+
+    /* setup */
+    XMEMSET(&setup, 0, sizeof(CpaCySymSessionSetupData));
+    setup.sessionPriority = CPA_CY_PRIORITY_NORMAL;
+    setup.symOperation = CPA_CY_SYM_OP_HASH;
+    setup.partialsNotRequired = CPA_TRUE;
+    setup.hashSetupData.hashMode = hashMode;
+    setup.hashSetupData.hashAlgorithm = hashAlgorithm;
+    setup.hashSetupData.digestResultLenInBytes = digestSize;
+    setup.hashSetupData.authModeSetupData.authKey = authKey;
+    setup.hashSetupData.authModeSetupData.authKeyLenInBytes = authKeyLenInBytes;
+
+    /* open session */
+    ret = IntelQaSymOpen(dev, &setup, callback);
+    if (ret != 0) {
+        goto exit;
+    }
+
+    /* operation data */
+    opData = &ctx->opData;
+    XMEMSET(opData, 0, sizeof(CpaCySymOpData));
+    opData->sessionCtx = ctx->symCtx;
+    opData->packetType = packetType;
+    opData->messageLenToHashInBytes = totalMsgSz;
+    opData->pDigestResult = digestBuf;
+
+    /* store info needed for output */
+    dev->qat.out = out;
+    dev->qat.outLen = inOutSz;
+    IntelQaOpInit(dev, IntelQaSymHashFree);
+
+    /* perform symmetric hash operation async */
+    /* use same buffer list for in-place operation */
+    do {
+        status = cpaCySymPerformOp(dev->qat.handle,
+                                   dev,
+                                   opData,
+                                   srcList,
+                                   srcList,
+                                   NULL);
+    } while (IntelQaHandleCpaStatus(dev, status, &ret, QAT_HASH_ASYNC, callback,
+        &retryCount));
+
+    if (ret == WC_PENDING_E)
+        return ret;
+
+exit:
+
+    if (ret != 0) {
+        printf("cpaCySymPerformOp Hash failed! dev %p, status %d, ret %d\n",
+            dev, status, ret);
+
+        /* handle cleanup */
+        IntelQaSymHashFree(dev);
+    }
+
+    return ret;
+}
+
+#ifdef QAT_HASH_ENABLE_PARTIAL
+
+/* For hash update call with out == NULL */
+/* For hash final call with out != NULL */
+static int IntelQaSymHashPartial(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     word32 inOutSz, CpaCySymHashMode hashMode,
     CpaCySymHashAlgorithm hashAlgorithm,
 
@@ -2035,27 +2863,17 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     byte** buffers;
     word32* buffersSz;
 
-#ifdef QAT_DEBUG
-    printf("IntelQaSymHash: dev %p, out %p, in %p, inOutSz %d, mode %d, algo %d\n",
-        dev, out, in, inOutSz, hashMode, hashAlgorithm);
-#endif
-
-    /* check args */
-    if (dev == NULL || (out == NULL && in == NULL) ||
-                                    hashAlgorithm == CPA_CY_SYM_HASH_NONE) {
-        return BAD_FUNC_ARG;
-    }
-    /* trap call with both in and out set */
-    if (in != NULL && out != NULL) {
-        printf("IntelQaSymHash: Cannot call with in and out both set\n");
-        return BAD_FUNC_ARG;
-    }
-
     ret = IntelQaSymHashGetInfo(hashAlgorithm, &blockSize, &digestSize);
     if (ret != 0) {
         return BAD_FUNC_ARG;
     }
-    dev->qat.op.hash.blockSize = blockSize;
+
+#ifdef QAT_DEBUG
+    printf("IntelQaSymHashPartial: dev %p, out %p, in %p, inOutSz %d, mode %d, "
+        "algo %d, digSz %d, blkSz %d\n",
+        dev, out, in, inOutSz, hashMode, hashAlgorithm, digestSize, blockSize);
+#endif
+
     ctx = &dev->qat.op.hash.ctx;
 
     bufferCount = &dev->qat.op.hash.bufferCount;
@@ -2065,16 +2883,19 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     /* handle input processing */
     if (in) {
         /* if tmp has data or input is not block aligned */
-        if (dev->qat.op.hash.tmpInSz > 0 || (inOutSz % blockSize)) {
+        if (dev->qat.op.hash.tmpInSz > 0 || inOutSz == 0 ||
+            (inOutSz % blockSize) != 0) {
             /* need to handle unaligned hashing, using local tmp */
 
             /* make sure we have tmpIn allocated */
             if (dev->qat.op.hash.tmpIn == NULL) {
                 dev->qat.op.hash.tmpInSz = 0;
-                dev->qat.op.hash.tmpIn = XMALLOC(blockSize, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+                dev->qat.op.hash.tmpIn = XMALLOC(blockSize, dev->heap,
+                    DYNAMIC_TYPE_ASYNC_NUMA);
                 if (dev->qat.op.hash.tmpIn == NULL) {
                     ret = MEMORY_E; goto exit;
                 }
+                dev->qat.op.hash.tmpInBufSz = blockSize;
             }
 
             /* setup processing for block aligned part of input or use tmpIn */
@@ -2125,6 +2946,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
                         if (dev->qat.op.hash.tmpIn == NULL) {
                             ret = MEMORY_E; goto exit;
                         }
+                        dev->qat.op.hash.tmpInBufSz = blockSize;
 
                         XMEMCPY(dev->qat.op.hash.tmpIn, in, inOutSz);
                         dev->qat.op.hash.tmpInSz = inOutSz;
@@ -2187,7 +3009,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     packetType = CPA_CY_SYM_PACKET_TYPE_PARTIAL;
     if (out) {
         /* if remainder then add it */
-        if (dev->qat.op.hash.tmpIn && dev->qat.op.hash.tmpInSz > 0) {
+        if (dev->qat.op.hash.tmpIn) {
             /* add buffer and use final hash type */
             buffers[*bufferCount] = dev->qat.op.hash.tmpIn;
             buffersSz[*bufferCount] = dev->qat.op.hash.tmpInSz;
@@ -2245,15 +3067,14 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
         if (digestBuf == NULL) {
             ret = MEMORY_E; goto exit;
         }
-        XMEMSET(&digestBuf[digestSize], 0, blockSize - digestSize);
-        XMEMCPY(digestBuf, out, digestSize);
     }
 
     /* setup */
     XMEMSET(&setup, 0, sizeof(CpaCySymSessionSetupData));
     setup.sessionPriority = CPA_CY_PRIORITY_NORMAL;
     setup.symOperation = CPA_CY_SYM_OP_HASH;
-    setup.partialsNotRequired = (packetType == CPA_CY_SYM_PACKET_TYPE_FULL) ? CPA_TRUE : CPA_FALSE;
+    setup.partialsNotRequired = (packetType == CPA_CY_SYM_PACKET_TYPE_FULL) ?
+        CPA_TRUE : CPA_FALSE;
     setup.hashSetupData.hashMode = hashMode;
     setup.hashSetupData.hashAlgorithm = hashAlgorithm;
     setup.hashSetupData.digestResultLenInBytes = digestSize;
@@ -2329,7 +3150,7 @@ static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
 exit:
 
     if (ret != 0) {
-        printf("cpaCySymPerformOp Hash failed! dev %p, status %d, ret %d\n",
+        printf("cpaCySymPerformOp Hash partial failed! dev %p, status %d, ret %d\n",
             dev, status, ret);
 
         /* handle cleanup */
@@ -2337,6 +3158,43 @@ exit:
     }
 
     return ret;
+}
+#endif /* QAT_HASH_ENABLE_PARTIAL */
+
+
+/* For hash update call with out == NULL */
+/* For hash final call with out != NULL */
+static int IntelQaSymHash(WC_ASYNC_DEV* dev, byte* out, const byte* in,
+    word32 inOutSz, CpaCySymHashMode hashMode,
+    CpaCySymHashAlgorithm hashAlgorithm,
+
+    /* For HMAC auth mode only */
+    Cpa8U* authKey, Cpa32U authKeyLenInBytes)
+{
+    /* check args */
+    if (dev == NULL || (out == NULL && in == NULL) ||
+                                    hashAlgorithm == CPA_CY_SYM_HASH_NONE) {
+        return BAD_FUNC_ARG;
+    }
+    /* trap call with both in and out set */
+    if (in != NULL && out != NULL) {
+        printf("IntelQaSymHash: Cannot call with in and out both set\n");
+        return BAD_FUNC_ARG;
+    }
+
+#ifdef QAT_HASH_ENABLE_PARTIAL
+    if (g_qatCapabilities.supPartial
+    #ifdef QAT_V2
+        && hashAlgorithm != CPA_CY_SYM_HASH_SHA3_256
+    #endif
+    ) {
+        return IntelQaSymHashPartial(dev, out, in, inOutSz, hashMode,
+            hashAlgorithm, authKey, authKeyLenInBytes);
+    }
+    else
+#endif
+    return IntelQaSymHashCache(dev, out, in, inOutSz, hashMode,
+        hashAlgorithm, authKey, authKeyLenInBytes);
 }
 
 #ifdef WOLFSSL_SHA512
@@ -2384,50 +3242,79 @@ int IntelQaSymMd5(WC_ASYNC_DEV* dev, byte* out, const byte* in, word32 sz)
     return IntelQaSymHash(dev, out, in, sz,
         CPA_CY_SYM_HASH_MODE_PLAIN, CPA_CY_SYM_HASH_MD5, NULL, 0);
 }
-
 #endif /* !NO_MD5 */
+
+#if defined(WOLFSSL_SHA3) && defined(QAT_V2)
+int IntelQaSymSha3(WC_ASYNC_DEV* dev, byte* out, const byte* in, word32 sz)
+{
+    if (g_qatCapabilities.supSha3) {
+        return IntelQaSymHash(dev, out, in, sz,
+            CPA_CY_SYM_HASH_MODE_PLAIN, CPA_CY_SYM_HASH_SHA3_256, NULL, 0);
+    }
+    return NOT_COMPILED_IN;
+}
+#endif
 
 #ifndef NO_HMAC
     int IntelQaHmacGetType(int macType, word32* hashAlgorithm)
     {
-        int ret = 0;
+        int ret = NOT_COMPILED_IN;
 
         switch (macType) {
         #ifndef NO_MD5
             case WC_MD5:
                 if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_MD5;
+                ret = 0;
                 break;
         #endif
         #ifndef NO_SHA
             case WC_SHA:
                 if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA1;
+                ret = 0;
                 break;
         #endif
         #ifdef WOLFSSL_SHA224
             case WC_SHA224:
                 if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA224;
+                ret = 0;
                 break;
         #endif
         #ifndef NO_SHA256
             case WC_SHA256:
                 if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA256;
+                ret = 0;
                 break;
         #endif
         #ifdef WOLFSSL_SHA512
         #ifdef WOLFSSL_SHA384
             case WC_SHA384:
                 if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA384;
+                ret = 0;
                 break;
         #endif
             case WC_SHA512:
                 if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA512;
+                ret = 0;
+                break;
+        #endif
+        #ifdef WOLFSSL_SHA3
+            case WC_SHA3_256:
+                if (g_qatCapabilities.supSha3) {
+                    if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA3_256;
+                    ret = 0;
+                }
                 break;
         #endif
         #ifdef HAVE_BLAKE2
             case BLAKE2B_ID:
         #endif
+        #ifdef WOLFSSL_SHA3
+            case WC_SHA3_224:
+            case WC_SHA3_384:
+            case WC_SHA3_512:
+        #endif
             default:
-                return NOT_COMPILED_IN;
+                ret = NOT_COMPILED_IN;
         }
         return ret;
     }
@@ -3178,6 +4065,7 @@ exit:
 #endif /* !NO_DH */
 
 
+#if defined(QAT_ENABLE_RNG)
 /* -------------------------------------------------------------------------- */
 /* Random NRBG/DRBG */
 /* -------------------------------------------------------------------------- */
@@ -3456,7 +4344,7 @@ exit:
 
     return ret;
 }
-
+#endif /* QAT_ENABLE_RNG */
 
 #ifdef QAT_DEMO_MAIN
 
