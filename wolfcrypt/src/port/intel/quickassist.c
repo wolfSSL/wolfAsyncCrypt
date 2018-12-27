@@ -3297,7 +3297,7 @@ int IntelQaSymSha3(WC_ASYNC_DEV* dev, byte* out, const byte* in, word32 sz)
                 ret = 0;
                 break;
         #endif
-        #ifdef WOLFSSL_SHA3
+        #if defined(WOLFSSL_SHA3) && defined(QAT_V2)
             case WC_SHA3_256:
                 if (g_qatCapabilities.supSha3) {
                     if (hashAlgorithm) *hashAlgorithm = CPA_CY_SYM_HASH_SHA3_256;
