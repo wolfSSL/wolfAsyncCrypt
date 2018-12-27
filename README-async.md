@@ -1,6 +1,6 @@
 # wolfSSL / wolfCrypt Asynchronous Support
 
-This respository contains the async.c and async.h files required for using Asynchronous Cryptography with the wolfSSL library.
+This repository contains the async.c and async.h files required for using Asynchronous Cryptography with the wolfSSL library.
 
 * The async.c file goes into `./wolfcrypt/src/`.
 * The async.h file goes into `./wolfssl/wolfcrypt/`.
@@ -11,13 +11,22 @@ This feature is enabled using:
 The async crypt simulator is enabled by default if the hardware does not support async crypto or it can be manually enabled using `#define WOLFSSL_ASYNC_CRYPT_TEST`.
 
 ## Design
-Each crypto alorithm has its own `WC_ASYNC_DEV` structure, which contains a `WOLF_EVENT`, local crypto context and local hardware context.
+
+Each crypto algorithm has its own `WC_ASYNC_DEV` structure, which contains a `WOLF_EVENT`, local crypto context and local hardware context.
 
 For SSL/TLS the `WOLF_EVENT` context is the `WOLFSSL*` and the type is `WOLF_EVENT_TYPE_ASYNC_WOLFSSL`. For wolfCrypt operations the `WOLF_EVENT` context is the `WC_ASYNC_DEV*` and the type is `WOLF_EVENT_TYPE_ASYNC_WOLFCRYPT`. 
 
 A generic event system has been created using a `WOLF_EVENT` structure when `HAVE_WOLF_EVENT` is defined. The event structure resides in the `WC_ASYNC_DEV`.
 
-The asyncronous crypto system is modeled after epoll. The implementation uses `wolfSSL_AsyncPoll` or `wolfSSL_CTX_AsyncPoll` to check if any async operations are complete.
+The asynchronous crypto system is modeled after epoll. The implementation uses `wolfSSL_AsyncPoll` or `wolfSSL_CTX_AsyncPoll` to check if any async operations are complete.
+
+
+## Hardware
+
+Supported hardware:
+
+* Intel QuickAssist with QAT 1.6 or QAT 1.7 driver. See README.md in `wolfcrypt/src/port/intel/README.md`.
+* Cavium Nitrox III and V. See README.md in `wolfcrypt/src/port/cavium/README.md`.
 
 ## API's
 
@@ -46,7 +55,7 @@ Open the async device and returns an `int` device id for it.
 ```
 int wolfAsync_DevOpenThread(int *devId, void* threadId);
 ```
-Opens the async device for a specific thread. A crypto instance is assigned and thread assinity set.
+Opens the async device for a specific thread. A crypto instance is assigned and thread affinity set.
 
 ### ```wolfAsync_DevClose```
 ```
@@ -143,8 +152,9 @@ void wolfAsync_HardwareStop(void);
 
 Stops hardware if internal `--start_count == 0`.
 
-# Examples
-## TLS Server Example
+## Examples
+
+### TLS Server Example
 
 ```
 #ifdef WOLFSSL_ASYNC_CRYPT
@@ -177,7 +187,7 @@ Stops hardware if internal `--start_count == 0`.
 #endif
 ```
 
-## wolfCrypt Example
+### wolfCrypt RSA Example
 
 ```
 #ifdef WOLFSSL_ASYNC_CRYPT
@@ -211,31 +221,17 @@ Stops hardware if internal `--start_count == 0`.
 #endif
 ```
 
-## Benchmarks
+## Build Options
 
-```
-./configure --enable-certgen --enable-certext --enable-keygen --enable-certreq --enable-ecc --enable-supportedcurves --enable-asynccrypt --enable-aesgcm --enable-intelasm --enable-aesni --enable-des3 --enable-sha224 --enable-opensslextra --enable-psk --with-intelqa=../QAT1.6 C_EXTRA_FLAGS="-DWC_ASYNC_THRESH_NONE"
-make
-sudo ./wolfcrypt/benchmark/benchmark
-
-IntelQA: Instances 6
-wolfCrypt Benchmark (min 1.0 sec each)
-CPUs: 8
-
-```
-
-# Build Options
-
-1. `WC_NO_ASYNC_THREADING`: Disables async mult-threading.
-2. `WC_ASYNC_THREAD_BIND`: Enables binding of thread to crypto hardware instance.
-2. `WC_ASYNC_THRESH_NONE` Disables the cipher thresholds, which are tunable values to determine at what size hardware should be used vs. software.
-3. `NO_SW_BENCH`: Disables sofware benchmarks so only hardware results are returned.
-4. Use `WOLFSSL_DEBUG_MEMORY` and `WOLFSSL_TRACK_MEMORY` to help debug memory issues.
+1. Async mult-threading can be disabled by defining `WC_NO_ASYNC_THREADING`. 
+2. Software benchmarks can be disabled by defining `NO_SW_BENCH`.
+3. The `WC_ASYNC_THRESH_NONE` define can be used to disable the cipher thresholds, which are tunable values to determine at what size hardware should be used vs. software.
+4. Use `WOLFSSL_DEBUG_MEMORY` and `WOLFSSL_TRACK_MEMORY` to help debug memory issues. QAT also supports `WOLFSSL_DEBUG_MEMORY_PRINT`.
 
 
-# References
+## References
 
-## TLS Client/Server Async Example
+### TLS Client/Server Async Example
 
 We have a full TLS client/server async examples here:
 
@@ -243,7 +239,8 @@ We have a full TLS client/server async examples here:
 
 * [https://github.com/wolfSSL/wolfssl-examples/blob/master/tls/client-tls-perf.c](https://github.com/wolfSSL/wolfssl-examples/blob/master/tls/client-tls-perf.c)
 
-### Usage
+#### Usage
+
 ```
 git clone git@github.com:wolfSSL/wolfssl-examples.git
 cd wolfssl-examples
@@ -269,46 +266,140 @@ wolfSSL Client Benchmark 16384 bytes
 	Write             :    74.535 ms (   20.963 MBps)
 ```
 
-# Installation
+## Change Log
 
-If using wolfAsyncCrypt repo directly some useful commands to setup links to wolfssl in relative directory:
+### wolfSSL Async Release v3.15.7 (12/27/2018)
 
-## Async Files
-```
-rm wolfcrypt/src/async.c
-ln -s ../../../wolfAsyncCrypt/wolfcrypt/src/async.c ./wolfcrypt/src/async.c
-rm wolfssl/wolfcrypt/async.h 
-ln -s ../../../wolfAsyncCrypt/wolfssl/wolfcrypt/async.h ./wolfssl/wolfcrypt/async.h
-```
+* Fixes for various analysis warnings (https://github.com/wolfSSL/wolfssl/pull/2003).
+* Added QAT v1.7 driver support.
+* Added QAT SHA-3 support.
+* Added QAT RSA Key Generation support.
+* Added support for new usdm memory driver.
+* Added support for detecting QAT version and features.
+* Added `QAT_ENABLE_RNG` option to disable QAT TRNG/DRBG.
+* Added alternate hashing method to cache all updates (avoids using partial updates).
 
-## Intel QuickAssist Port Files
-```
-rm wolfcrypt/src/port/intel/quickassist.c
-ln -s ../../../../../wolfAsyncCrypt/wolfcrypt/src/port/intel/quickassist.c ./wolfcrypt/src/port/intel/quickassist.c
-rm wolfcrypt/src/port/intel/quickassist_mem.c
-ln -s ../../../../../wolfAsyncCrypt/wolfcrypt/src/port/intel/quickassist_mem.c ./wolfcrypt/src/port/intel/quickassist_mem.c
+### wolfSSL Async Release v3.15.5 (11/09/2018)
 
-mkdir wolfssl/wolfcrypt/port/intel
-rm wolfssl/wolfcrypt/port/intel/quickassist.h
-ln -s ../../../../../wolfAsyncCrypt/wolfssl/wolfcrypt/port/intel/quickassist.h ./wolfssl/wolfcrypt/port/intel/quickassist.h
-rm wolfssl/wolfcrypt/port/intel/quickassist_mem.h
-ln -s ../../../../../wolfAsyncCrypt/wolfssl/wolfcrypt/port/intel/quickassist_mem.h ./wolfssl/wolfcrypt/port/intel/quickassist_mem.h
+* Fixes for various analysis warnings (https://github.com/wolfSSL/wolfssl/pull/1918).
+* Fix for QAT possible double free case where `ctx->symCtx` is not trapped.
+* Improved QAT debug messages when using `QAT_DEBUG`.
+* Fix for QAT RNG to allow zero length. This resolves PSS case where `wc_RNG_GenerateBlock` is called for saltLen == 0.
 
-rm wolfcrypt/src/port/intel/README.md
-ln -s ../../../../../wolfAsyncCrypt/wolfcrypt/src/port/intel/README.md ./wolfcrypt/src/port/intel/README.md
-```
 
-## Cavium Nitrox Port Files
-```
-rm wolfcrypt/src/port/cavium/cavium_nitrox.c
-ln -s ../../../../../wolfAsyncCrypt/wolfcrypt/src/port/cavium/cavium_nitrox.c ./wolfcrypt/src/port/cavium/cavium_nitrox.c
+### wolfSSL Async Release v3.15.3 (06/20/2018)
 
-mkdir wolfssl/wolfcrypt/port/cavium
-rm ./wolfssl/wolfcrypt/port/cavium/cavium_nitrox.h
-ln -s ../../../../../wolfAsyncCrypt/wolfssl/wolfcrypt/port/cavium/cavium_nitrox.h ./wolfssl/wolfcrypt/port/cavium/cavium_nitrox.h
+* Fixes for fsantize tests with Cavium Nitrox V.
+* Removed typedef for `CspHandle`, since its already defined.
+* Fixes for a couple of fsanitize warnings.
+* Fix for possible leak with large request to `IntelQaDrbg`.
 
-rm wolfcrypt/src/port/cavium/README.md
-ln -s ../../../../../wolfAsyncCrypt/wolfcrypt/src/port/cavium/README.md ./wolfcrypt/src/port/cavium/README.md
-```
+### wolfSSL Async Release v3.14.4 (04/13/2018)
 
-Then a wolfssl `make dist` will include actual files.
+* Added Nitrox V ECC.
+* Added Nitrox V SHA-224 and SHA-3
+* Added Nitrox V AES GCM
+* Added Nitrox III SHA2 384/512 support for HMAC.
+* Added error code handling for signature check failure.
+* Added error translate for `ERR_PKCS_DECRYPT_INCORRECT`
+* Added useful `WOLFSSL_NITROX_DEBUG` and show count for pending checks.
+* Cleanup of Nitrox symmetric processing to use single while loops.
+* Cleanup to only include some headers in cavium_nitrox.c port.
+* Fixes for building against Nitrox III and V SDK.
+* Updates to README.md with required CFLAGS/LDFLAGS when building without ./configure.
+* Fix for Intel QuickAssist HMAC to use software for unsupported hash algorithms.
+
+
+### wolfSSL Async Release v3.12.2 (10/22/2017)
+
+* Fix for HMAC QAT when block size aligned. The QAT HMAC final without any buffers will fail incorrectly (bug in QAT 1.6).
+* Nitrox fix for rename of `ContextType` to `context_type_t`. Updates to Nitrox README.md.
+* Workaround for `USE_QAE_THREAD_LS` issue with realloc from a different thread.
+* Fix for hashing to allow zero length. This resolves issue with new empty hash tests.
+* Fix bug with blocking async where operation was being free'd before completion. Set freeFunc prior to performing operation and check ret code in poll.
+* Fix leak with cipher symmetric context close.
+* Fix QAT_DEBUG partialState offset.
+* Fixes for symmetric context caching.
+* Refactored async event initialization so its done prior to making possible async calls.
+* Fix to resolve issue with QAT callbacks and multi-threading. 
+* The cleanup is now handled in polling function and the event is only marked done from the polling thread that matches the originating thread.
+* Fix possible mem leak with multiple threads `g_qatEcdhY` and `g_qatEcdhCofactor1`.
+* Fix the block polling to use `ret` instead of `status`.
+* Change order of `IntelQaDevClear` and setting `event->ret`.
+* Fixes to better handle threading with async.
+* Refactor of async event state.
+* Refactor to initialize event prior to operation (in case it finishes before adding to queue).
+* Fixes issues with AES GCM decrypt that can corrupt up to authTag bytes at end of output buffer provided.
+* Optimize the Hmac struct to replace keyRaw with ipad.
+* Enhancement to allow re-use of the symmetric context for ciphers.
+* Fixes for QuickAssist (QAT) multi-threading. Fix to not set return code until after callback cleanup.
+* Disable thread binding to specific CPU by default (enabled now with `WC_ASYNC_THREAD_BIND`).
+* Added optional define `QAT_USE_POLLING_CHECK ` to have only one thread polling at a time (not required and doesn't improve performance).
+* Reduced default QAT_MAX_PENDING for benchmark to 15 (120/num_threads).
+* Fix for IntelQaDrbg to handle buffer over 0xFFFF in length.
+* Added working DRBG and TRNG implementations for QAT.
+* Fix to set callback status after ret and output have been set. Cleanup of the symmetric context.
+* Updates to support refactored dynamic types.
+* Fix for QAT symmetric to allow NULL authTag.
+* Fix GCC 7 build warning with braces.
+* Cleanup formatting.
+
+### wolfSSL Async Release v3.11.0 (05/05/2017)
+
+* Fixes for Cavium Nitrox III/V.
+	- Fix with possible crash when using a request Id that is already complete, due to partial submissions not marking event done.
+	- Improvements to max buffer lengths.
+	- Fixes to handle various return code patterns with CNN55XX-SDK.
+	- All Nitrox V tests and benchmarks pass. Bench: RSA 2048-bit public 336,674 ops/sec and private (CRT) 66,524 ops/sec.
+
+* Intel QuickAssist support and various async fixes/improvements:
+    - Added support for Intel QuickAssist v1.6 driver with QuickAssist 8950 hardware
+	- Added QAE memory option to use static memory list instead of dynamic list using `USE_QAE_STATIC_MEM`.
+	- Added tracking of deallocs and made the values signed long.
+	- Improved code for wolf header check and expanded to 16-byte alignment for performance improvement with TLS.
+	- Added ability to override limit dev access parameters and all configurable QAT fields.
+	- Added async simulator tests for DH, DES3 CBC and AES CBC/GCM.
+	- Rename AsyncCryptDev to WC_ASYNC_DEV.
+	- Refactor to move WOLF_EVENT into WC_ASYNC_DEV.
+	- Refactor the async struct/enum names to use WC_ naming.
+	- Refactor of the async event->context to use WOLF_EVENT_TYPE_ASYNC_WOLFSSL or WOLF_EVENT_TYPE_ASYNC_WOLFCRYPT to indicate the type of context pointer.
+	- Added flag to WOLF_EVENT which is used to determine if the async complete should call into operation again or goto next `WC_ASYNC_FLAG_CALL_AGAIN`.
+	- Cleanup of the "wolfAsync_DevCtxInit" calls to make sure asyncDev is always cleared if invalid device id is used.
+	- Eliminated WOLFSSL_ASYNC_CRYPT_STATE.
+	- Removed async event type WOLF_EVENT_TYPE_ASYNC_ANY.
+	- Enable the random extra delay option by default for simulator as it helps catch bugs.
+	- Cleanup for async free to also check marker.
+	- Refactor of the async wait and handle to reduce duplicate code.
+	- Added async simulator test for RSA make key.
+	- Added WC_ASYNC_THRESH_NONE to allow bypass of threshold for testing
+	- Added static numbers for the async sim test types, for easier debugging of the “testDev->type” value.
+	- Populate heap hint into asyncDev struct.
+	- Enhancement to cache the asyncDev to improve poll performance.
+	- Added async threading helpers and new wolfAsync_DevOpenThread.
+	- Added WC_NO_ASYNC_THREADING to prevent async threading.
+	- Added new API “wc_AsyncGetNumberOfCpus” for getting number of CPU’s.
+	- Added new “wc_AsyncThreadYield” API.
+	- Added WOLF_ASYNC_MAX_THREADS.
+	- Added new API for wolfAsync_DevCopy.
+	- Fix to make sure an async init failure sets the deviceId to INVALID_DEVID.
+	- Fix for building with async threading support on Mac.
+	- Fix for using simulator so it supports multiple threads.
+
+* Moved Intel QuickAssist and Cavium Nitrox III/V code into async repo.
+* Added new WC_ASYNC_NO_* options to allow disabling of individual async algorithms.
+	- New defines are: WC_ASYNC_NO_CRYPT, WC_ASYNC_NO_PKI and WC_ASYNC_NO_HASH.
+	- Additionally each algorithm has a WC_ASYNC_NO_[ALGO] define.
+
+
+### wolfSSL Async Release v3.9.8 (07/25/2016)
+
+* Asynchronous wolfCrypt and Cavium Nitrox V support. 
+
+### wolfSSL Async Release v3.9.0 (03/04/2016)
+
+* Initial version with async simulator and README.md.
+
+
+## Support
+
+For questions email wolfSSL support at support@wolfssl.com
