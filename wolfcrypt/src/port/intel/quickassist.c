@@ -148,7 +148,7 @@ static void* IntelQaPollingThread(void* context)
     printf("Polling Thread Start\n");
 #endif
     while (dev->qat.pollingCy) {
-        icp_sal_CyPollInstance(dev->qat.handle, 8); /* max 8 callbacks */
+        icp_sal_CyPollInstance(dev->qat.handle, QAT_POLL_RESP_QUOTA);
         wc_AsyncSleep(10);
     }
 #ifdef QAT_DEBUG
@@ -745,7 +745,7 @@ int IntelQaPoll(WC_ASYNC_DEV* dev)
     }
 #endif
 
-	status = icp_sal_CyPollInstance(dev->qat.handle, 8); /* max 8 callbacks */
+	status = icp_sal_CyPollInstance(dev->qat.handle, QAT_POLL_RESP_QUOTA);
 	if (status != CPA_STATUS_SUCCESS && status != CPA_STATUS_RETRY) {
 		printf("IntelQa: Poll failure %d\n", status);
 		ret = -1;

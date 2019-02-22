@@ -81,10 +81,20 @@
     #define QAT_MAX_DEVICES  (1)  /* maximum number of QAT cards */
 #endif
 #ifndef QAT_MAX_PENDING
-    #define QAT_MAX_PENDING  (15) /* 120/num_threads = max num of concurrent ops */
+    /* max num of concurrent ops */
+    #ifdef WC_NO_ASYNC_THREADING
+        #define QAT_MAX_PENDING  (40)
+    #elif defined(WC_ASYNC_BENCH_THREAD_COUNT)
+        #define QAT_MAX_PENDING  ((40/WC_ASYNC_BENCH_THREAD_COUNT)*2)
+    #else
+        #define QAT_MAX_PENDING  (15)
+    #endif
 #endif
 #ifndef QAT_RETRY_LIMIT
     #define QAT_RETRY_LIMIT  (100)
+#endif
+#ifndef QAT_POLL_RESP_QUOTA
+    #define QAT_POLL_RESP_QUOTA (0) /* all pending */
 #endif
 
 /* TODO: Tune this value to get best performance */
