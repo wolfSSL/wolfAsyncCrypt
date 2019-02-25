@@ -3444,6 +3444,10 @@ int IntelQaEcdh(WC_ASYNC_DEV* dev, WC_BIGINT* k, WC_BIGINT* xG,
         return BAD_FUNC_ARG;
     }
 
+#ifdef QAT_DEBUG
+    printf("IntelQaEcdh dev %p\n", dev);
+#endif
+
     /* setup operation */
     opData = &dev->qat.op.ecc_ecdh.opData;
     pXk = &dev->qat.op.ecc_ecdh.pXk;
@@ -3610,6 +3614,10 @@ int IntelQaEcdsaSign(WC_ASYNC_DEV* dev,
         return BAD_FUNC_ARG;
     }
 
+#ifdef QAT_DEBUG
+    printf("IntelQaEcdsaSign dev %p\n", dev);
+#endif
+
     /* setup operation */
     opData = &dev->qat.op.ecc_sign.opData;
     pR = &dev->qat.op.ecc_sign.R;
@@ -3742,6 +3750,10 @@ int IntelQaEcdsaVerify(WC_ASYNC_DEV* dev, WC_BIGINT* m,
         return BAD_FUNC_ARG;
     }
 
+#ifdef QAT_DEBUG
+    printf("IntelQaEcdsaVerify dev %p\n", dev);
+#endif
+
     /* setup operation */
     opData = &dev->qat.op.ecc_verify.opData;
 
@@ -3870,6 +3882,10 @@ int IntelQaDhKeyGen(WC_ASYNC_DEV* dev, WC_BIGINT* p, WC_BIGINT* g,
                                   pub == NULL || pubSz == NULL) {
         return BAD_FUNC_ARG;
     }
+
+#ifdef QAT_DEBUG
+    printf("IntelQaDhKeyGen dev %p\n", dev);
+#endif
 
     /* setup operation */
     opData = &dev->qat.op.dh_gen.opData;
@@ -4004,6 +4020,10 @@ int IntelQaDhAgree(WC_ASYNC_DEV* dev, WC_BIGINT* p,
             priv == NULL || privSz == 0 || otherPub == NULL || pubSz == 0) {
         return BAD_FUNC_ARG;
     }
+
+#ifdef QAT_DEBUG
+    printf("IntelQaDhAgree dev %p, agreeSz %d\n", dev, *agreeSz);
+#endif
 
     /* setup operation */
     opData = &dev->qat.op.dh_agree.opData;
