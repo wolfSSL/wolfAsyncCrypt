@@ -479,7 +479,7 @@ error:
 
 int IntelQaInit(void* threadId)
 {
-	int ret;
+    int ret;
     int devId;
 #if !defined(WC_NO_ASYNC_THREADING) && defined(WC_ASYNC_THREAD_BIND)
     pthread_t* thread = (pthread_t*)threadId;
@@ -520,7 +520,7 @@ int IntelQaInit(void* threadId)
     }
 #endif /* !WC_NO_ASYNC_THREADING && !WC_NO_ASYNC_THREAD_BIND */
 
-	return devId;
+    return devId;
 }
 
 int IntelQaNumInstances(void)
@@ -534,7 +534,7 @@ int IntelQaOpen(WC_ASYNC_DEV* dev, int devId)
         return BAD_FUNC_ARG;
     }
 
-	(void)devId;
+    (void)devId;
 
     /* clear device info */
     XMEMSET(&dev->qat, 0, sizeof(IntelQaDev));
@@ -544,7 +544,7 @@ int IntelQaOpen(WC_ASYNC_DEV* dev, int devId)
         return ASYNC_INIT_E;
     }
 
-	dev->qat.devId = devId;
+    dev->qat.devId = devId;
     dev->qat.handle = g_cyInstances[devId];
 
 #ifdef QAT_USE_POLLING_THREAD
@@ -552,7 +552,7 @@ int IntelQaOpen(WC_ASYNC_DEV* dev, int devId)
     IntelQaStartPollingThread(dev);
 #endif
 
-	return 0;
+    return 0;
 }
 
 #if defined(QAT_ENABLE_CRYPTO) || defined(QAT_ENABLE_HASH)
@@ -651,13 +651,13 @@ void IntelQaClose(WC_ASYNC_DEV* dev)
         IntelQaStopPollingThread(dev);
     #endif
 
-    	dev->qat.handle = NULL;
+        dev->qat.handle = NULL;
     }
 }
 
 void IntelQaDeInit(int devId)
 {
-	(void)devId;
+    (void)devId;
 
     if (pthread_mutex_lock(&g_Hwlock) == 0) {
         IntelQaHardwareStop();
@@ -723,10 +723,10 @@ int IntelQaDevCopy(WC_ASYNC_DEV* src, WC_ASYNC_DEV* dst)
 
 int IntelQaPoll(WC_ASYNC_DEV* dev)
 {
-	int ret = 0;
+    int ret = 0;
 
 #ifndef QAT_USE_POLLING_THREAD
-	CpaStatus status;
+    CpaStatus status;
     WOLF_EVENT* event = &dev->event;
 
 #ifdef QAT_USE_POLLING_CHECK
@@ -745,11 +745,11 @@ int IntelQaPoll(WC_ASYNC_DEV* dev)
     }
 #endif
 
-	status = icp_sal_CyPollInstance(dev->qat.handle, QAT_POLL_RESP_QUOTA);
-	if (status != CPA_STATUS_SUCCESS && status != CPA_STATUS_RETRY) {
-		printf("IntelQa: Poll failure %d\n", status);
-		ret = -1;
-	}
+    status = icp_sal_CyPollInstance(dev->qat.handle, QAT_POLL_RESP_QUOTA);
+    if (status != CPA_STATUS_SUCCESS && status != CPA_STATUS_RETRY) {
+        printf("IntelQa: Poll failure %d\n", status);
+        ret = -1;
+    }
 
 #ifndef WC_NO_ASYNC_THREADING
     if (event->threadId == 0 || event->threadId == wc_AsyncThreadId())
@@ -784,7 +784,7 @@ int IntelQaPoll(WC_ASYNC_DEV* dev)
     (void)dev;
 #endif
 
-	return ret;
+    return ret;
 }
 
 static int IntelQaPollBlockRet(WC_ASYNC_DEV* dev, int ret_wait)
@@ -1448,12 +1448,12 @@ static void IntelQaRsaPrivateCallback(void *pCallbackTag,
     int ret = ASYNC_OP_E;
 
 #ifdef QAT_DEBUG
-	printf("IntelQaRsaPrivateCallback: dev %p, status %d, len %d\n",
+    printf("IntelQaRsaPrivateCallback: dev %p, status %d, len %d\n",
         dev, status, pOut->dataLenInBytes);
 #endif
 
-	if (status == CPA_STATUS_SUCCESS) {
-		/* validate returned output */
+    if (status == CPA_STATUS_SUCCESS) {
+        /* validate returned output */
 
         if (dev->qat.outLenPtr) {
             if (pOut->dataLenInBytes > *dev->qat.outLenPtr) {
@@ -1462,14 +1462,14 @@ static void IntelQaRsaPrivateCallback(void *pCallbackTag,
             *dev->qat.outLenPtr = pOut->dataLenInBytes;
         }
 
-		/* return data */
+        /* return data */
         if (dev->qat.out && dev->qat.out != pOut->pData) {
-    		XMEMCPY(dev->qat.out, pOut->pData, pOut->dataLenInBytes);
+            XMEMCPY(dev->qat.out, pOut->pData, pOut->dataLenInBytes);
         }
 
         /* mark event result */
         ret = 0; /* success */
-	}
+    }
     (void)opData;
 
     /* set return code to mark complete */
@@ -1481,8 +1481,8 @@ int IntelQaRsaPrivate(WC_ASYNC_DEV* dev,
                     WC_BIGINT* d, WC_BIGINT* n,
                     byte* out, word32* outLen)
 {
-	int ret = 0, retryCount = 0;
-	CpaStatus status = CPA_STATUS_SUCCESS;
+    int ret = 0, retryCount = 0;
+    CpaStatus status = CPA_STATUS_SUCCESS;
     CpaCyRsaPrivateKey* privateKey = NULL;
     CpaCyRsaDecryptOpData* opData = NULL;
     CpaFlatBuffer* outBuf = NULL;
@@ -1497,15 +1497,15 @@ int IntelQaRsaPrivate(WC_ASYNC_DEV* dev,
     printf("IntelQaRsaPrivate: dev %p, in %p (%d), out %p\n", dev, in, inLen, out);
 #endif
 
-	/* setup operation */
-	opData = &dev->qat.op.rsa_priv.opData;
+    /* setup operation */
+    opData = &dev->qat.op.rsa_priv.opData;
     outBuf = &dev->qat.op.rsa_priv.outBuf;
     privateKey = &dev->qat.op.rsa_priv.privateKey;
 
-	/* init variables */
+    /* init variables */
     XMEMSET(opData, 0, sizeof(CpaCyRsaDecryptOpData));
     XMEMSET(outBuf, 0, sizeof(CpaFlatBuffer));
-	XMEMSET(privateKey, 0, sizeof(CpaCyRsaPrivateKey));
+    XMEMSET(privateKey, 0, sizeof(CpaCyRsaPrivateKey));
 
     /* assign buffers */
     ret =  IntelQaBigIntToFlatBuffer(d, &privateKey->privateKeyRep1.privateExponentD);
@@ -1524,21 +1524,21 @@ int IntelQaRsaPrivate(WC_ASYNC_DEV* dev,
         *outLen = inLen;
     }
 
-	opData->inputData.dataLenInBytes = inLen;
-	opData->inputData.pData = XREALLOC((byte*)in, inLen, dev->heap,
+    opData->inputData.dataLenInBytes = inLen;
+    opData->inputData.pData = XREALLOC((byte*)in, inLen, dev->heap,
         DYNAMIC_TYPE_ASYNC_NUMA);
 
-	outBuf->dataLenInBytes = *outLen;
-	outBuf->pData = XREALLOC(out, *outLen, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+    outBuf->dataLenInBytes = *outLen;
+    outBuf->pData = XREALLOC(out, *outLen, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
 
-	/* check allocations */
-	if (opData->inputData.pData == NULL || outBuf->pData == NULL) {
-		ret = MEMORY_E; goto exit;
-	}
+    /* check allocations */
+    if (opData->inputData.pData == NULL || outBuf->pData == NULL) {
+        ret = MEMORY_E; goto exit;
+    }
 
-	/* setup private key */
-	privateKey->version = CPA_CY_RSA_VERSION_TWO_PRIME;
-	privateKey->privateKeyRepType = CPA_CY_RSA_PRIVATE_KEY_REP_TYPE_1;
+    /* setup private key */
+    privateKey->version = CPA_CY_RSA_VERSION_TWO_PRIME;
+    privateKey->privateKeyRepType = CPA_CY_RSA_PRIVATE_KEY_REP_TYPE_1;
 
     /* assign private key to private op data */
     opData->pRecipientPrivateKey = privateKey;
@@ -1550,7 +1550,7 @@ int IntelQaRsaPrivate(WC_ASYNC_DEV* dev,
 
     /* perform RSA decrypt */
     do {
-    	status = cpaCyRsaDecrypt(dev->qat.handle,
+        status = cpaCyRsaDecrypt(dev->qat.handle,
                                 callback,
                                 dev,
                                 opData,
@@ -1571,7 +1571,7 @@ exit:
     /* handle cleanup */
     IntelQaRsaPrivateFree(dev);
 
-	return ret;
+    return ret;
 }
 
 int IntelQaRsaCrtPrivate(WC_ASYNC_DEV* dev,
@@ -1741,8 +1741,8 @@ int IntelQaRsaPublic(WC_ASYNC_DEV* dev,
                     WC_BIGINT* e, WC_BIGINT* n,
                     byte* out, word32* outLen)
 {
-	int ret = 0, retryCount = 0;
-	CpaStatus status = CPA_STATUS_SUCCESS;
+    int ret = 0, retryCount = 0;
+    CpaStatus status = CPA_STATUS_SUCCESS;
     CpaCyRsaPublicKey* publicKey = NULL;
     CpaCyRsaEncryptOpData* opData = NULL;
     CpaFlatBuffer* outBuf = NULL;
@@ -1757,15 +1757,15 @@ int IntelQaRsaPublic(WC_ASYNC_DEV* dev,
     printf("IntelQaRsaPublic: dev %p, in %p (%d), out %p\n", dev, in, inLen, out);
 #endif
 
-	/* setup operation */
-	opData = &dev->qat.op.rsa_pub.opData;
+    /* setup operation */
+    opData = &dev->qat.op.rsa_pub.opData;
     outBuf = &dev->qat.op.rsa_pub.outBuf;
     publicKey = &dev->qat.op.rsa_pub.publicKey;
 
-	/* init variables */
+    /* init variables */
     XMEMSET(opData, 0, sizeof(CpaCyRsaEncryptOpData));
     XMEMSET(outBuf, 0, sizeof(CpaFlatBuffer));
-	XMEMSET(publicKey, 0, sizeof(CpaCyRsaPublicKey));
+    XMEMSET(publicKey, 0, sizeof(CpaCyRsaPublicKey));
 
     /* assign buffers */
     ret =  IntelQaBigIntToFlatBuffer(e, &publicKey->publicExponentE);
@@ -1781,17 +1781,17 @@ int IntelQaRsaPublic(WC_ASYNC_DEV* dev,
     /* make sure output len is set to modulus size */
     *outLen = n->len;
 
-	opData->inputData.dataLenInBytes = inLen;
-	opData->inputData.pData = XREALLOC((byte*)in, inLen, dev->heap,
+    opData->inputData.dataLenInBytes = inLen;
+    opData->inputData.pData = XREALLOC((byte*)in, inLen, dev->heap,
         DYNAMIC_TYPE_ASYNC_NUMA);
 
-	outBuf->dataLenInBytes = *outLen;
-	outBuf->pData = XREALLOC(out, *outLen, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA64);
+    outBuf->dataLenInBytes = *outLen;
+    outBuf->pData = XREALLOC(out, *outLen, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA64);
 
-	/* check allocations */
-	if (opData->inputData.pData == NULL || outBuf->pData == NULL) {
-		ret = MEMORY_E; goto exit;
-	}
+    /* check allocations */
+    if (opData->inputData.pData == NULL || outBuf->pData == NULL) {
+        ret = MEMORY_E; goto exit;
+    }
 
     /* assign public key to public op data */
     opData->pPublicKey = publicKey;
@@ -1803,7 +1803,7 @@ int IntelQaRsaPublic(WC_ASYNC_DEV* dev,
 
     /* perform RSA encrypt */
     do {
-    	status = cpaCyRsaEncrypt(dev->qat.handle,
+        status = cpaCyRsaEncrypt(dev->qat.handle,
                                 callback,
                                 dev,
                                 opData,
@@ -1824,7 +1824,7 @@ exit:
     /* handle cleanup */
     IntelQaRsaPublicFree(dev);
 
-	return ret;
+    return ret;
 }
 
 static void IntelQaRsaModExpFree(WC_ASYNC_DEV* dev)
@@ -1891,7 +1891,7 @@ int IntelQaRsaExptMod(WC_ASYNC_DEV* dev,
                     byte* out, word32* outLen)
 {
     int ret = 0, retryCount = 0;
-	CpaStatus status = CPA_STATUS_SUCCESS;
+    CpaStatus status = CPA_STATUS_SUCCESS;
     CpaCyLnModExpOpData* opData = NULL;
     CpaFlatBuffer* target = NULL;
     CpaCyGenFlatBufCbFunc callback = IntelQaRsaModExpCallback;
@@ -1909,7 +1909,7 @@ int IntelQaRsaExptMod(WC_ASYNC_DEV* dev,
     opData = &dev->qat.op.rsa_modexp.opData;
     target = &dev->qat.op.rsa_modexp.target;
 
-	/* init variables */
+    /* init variables */
     XMEMSET(opData, 0, sizeof(CpaCyLnModExpOpData));
     XMEMSET(target, 0, sizeof(CpaFlatBuffer));
 
@@ -1920,23 +1920,23 @@ int IntelQaRsaExptMod(WC_ASYNC_DEV* dev,
         ret = BAD_FUNC_ARG; goto exit;
     }
 
-	opData->base.dataLenInBytes = inLen;
-	opData->base.pData = XREALLOC((byte*)in, inLen, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+    opData->base.dataLenInBytes = inLen;
+    opData->base.pData = XREALLOC((byte*)in, inLen, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
 
-	target->dataLenInBytes = *outLen;
-	target->pData = XREALLOC(out, *outLen, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+    target->dataLenInBytes = *outLen;
+    target->pData = XREALLOC(out, *outLen, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
 
-	/* check allocations */
-	if (opData->base.pData == NULL || target->pData == NULL) {
-		ret = MEMORY_E; goto exit;
-	}
+    /* check allocations */
+    if (opData->base.pData == NULL || target->pData == NULL) {
+        ret = MEMORY_E; goto exit;
+    }
 
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLenPtr = outLen;
     IntelQaOpInit(dev, IntelQaRsaModExpFree);
 
-	/* make modexp call async */
+    /* make modexp call async */
     do {
         status = cpaCyLnModExp(dev->qat.handle,
                                callback,
@@ -4594,7 +4594,7 @@ int main(int argc, char** argv)
     wolfSSL_Debugging_ON();
 #endif
 
-	IntelQaInit(NULL);
+    IntelQaInit(NULL);
 
     /* DRBG Test */
     IntelQaOpen(&dev, 0);
@@ -4710,9 +4710,9 @@ int main(int argc, char** argv)
     (void)tmp;
     (void)tmpLen;
 
-	IntelQaDeInit(0);
+    IntelQaDeInit(0);
 
-	return 0;
+    return 0;
 }
 
 #endif
