@@ -68,8 +68,12 @@ typedef struct CspMultiRequestStatusBuffer CspMultiRequestStatusBuffer;
 
 
 #ifdef WOLFSSL_ASYNC_CRYPT
-    #define CAVIUM_MAX_PENDING  10 /* 90 */
-    #define CAVIUM_MAX_POLL     MAX_TO_POLL
+    #ifndef CAVIUM_MAX_PENDING
+        #define CAVIUM_MAX_PENDING  10 /* 90 */
+    #endif
+    #ifndef CAVIUM_MAX_POLL
+        #define CAVIUM_MAX_POLL     MAX_TO_POLL
+    #endif
 #endif
 
 
