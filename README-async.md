@@ -268,6 +268,21 @@ wolfSSL Client Benchmark 16384 bytes
 
 ## Change Log
 
+### wolfSSL Async Release v3.15.8 (03/01/2019) - Intermediate release
+
+* Performance improvements for QuickAssist.
+* Added new build option `QAT_POLL_RESP_QUOTA` to indicate maximum number of callbacks to service per poll. The default is 0 (all), was previously 8.
+* Added useful QAT_DEBUG logging for ECC and DH operations.
+* Cleanup whitespace in quickassist.c.
+* Enhanced the Cavium macros for `CAVIUM_MAX_PENDING` and `CAVIUM_MAX_POLL` over-ridable.
+* Added build-time override for benchmark thread count `WC_ASYNC_BENCH_THREAD_COUNT`.
+* Fixes for wolfCrypt test with asynchronous support enabled and `--enable-nginx`.
+* Fix to use QAT for ECC sign and verify when SP is enabled and key was initialized with devId. 
+* Fixes issues with wolfCrypt test and QAT not properly calling "again" for the ECC sign, verify and shared secret.
+* Correct the output for multi-threaded benchmark using `-base10` option.
+* Fixes to QAT HMAC enables in benchmark tool.
+* Adds new `NO_HW_BENCH` to support using multi-threaded software only benchmarks.
+
 ### wolfSSL Async Release v3.15.7 (12/27/2018)
 
 * Fixes for various analysis warnings (https://github.com/wolfSSL/wolfssl/pull/2003).
