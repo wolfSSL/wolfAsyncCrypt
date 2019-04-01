@@ -4,7 +4,7 @@ The wolfSSL / wolfCrypt libraries support hardware crypto acceleration using the
 
 ## Overview
 
-Support has been added for wolfCrypt for RSA public/private (CRT/non-CRT), AES CBC/GCM, ECDH/ECDSA, DH, DES3, SHA, SHA224, SHA256, SHA384, SHA512, MD5 and HMAC. RSA padding is done via software. The wolfCrypt tests and benchmarks have asynchronous. The wolfCrypt benchmark tool support multi-threading. The wolfSSL SSL/TLS async support has been extended to include all PKI, Encryption/Decryption and hashing/HMAC. An async hardware simulator has been added to test the asynchronous support without hardware.
+Support has been added for wolfCrypt for RSA public/private (CRT/non-CRT), AES CBC/GCM, ECDH/ECDSA, DH, DES3, SHA, SHA224, SHA256, SHA384, SHA512, MD5 and HMAC. RSA padding is done via software. The wolfCrypt tests and benchmarks have asynchronous support. The wolfCrypt benchmark tool support multi-threading. The wolfSSL SSL/TLS async support has been extended to include all PKI, Encryption/Decryption and hashing/HMAC. An async hardware simulator has been added to test the asynchronous support without hardware.
 
 The Intel QuickAssist port files are located in `wolfcrypt/src/port/intel/quickassist.c` and `wolfssl/wolfcrypt/port/intel/quickassist.h`. The QuickAssist memory handling for NUMA and normal malloc is in `wolfcrypt/src/port/intel/quickassist_mem.c`.
 
@@ -29,11 +29,11 @@ Note: If you have the older driver installed you may need to remove it or unload
 	
 	
 	```
-	wget https://01.org/sites/default/files/downloads/intelr-quickassist-technology/qat1.7.l.4.3.0-00033.tar.gz
+	wget https://01.org/sites/default/files/downloads/qat1.7.l.4.4.0-00023.tar.gz
 	mkdir QAT1.7
-	mv qat1.7.l.4.3.0-00033.tar.gz QAT1.7
+	mv qat1.7.l.4.4.0-00023.tar.gz QAT1.7
 	cd QAT1.7
-	tar -xvzf qat1.7.l.4.3.0-00033.tar.gz
+	tar -xvzf qat1.7.l.4.4.0-00023.tar.gz
 
 	./configure
 	make
@@ -42,23 +42,6 @@ Note: If you have the older driver installed you may need to remove it or unload
 
 	If you are using the QAT hardware hashing, you'll need to disable the params checking, which doesn't support a last partial with 0 length source input. Code runs and works, but parameter checking will fail.
 	Use `./configure --disable-param-check && sudo make install`
-	
-	Build warning fixes:
-	
-	a. quickassist/lookaside/access_layer/src/common/include/lac_log.h:102
-	
-	`"%s() - : " log "\n",` -> `(char*)"%s() - : " log "\n",`
-	
-	b. quickassist/lookaside/access_layer/src/common/include/lac_common.h:1151
-	
-	Add these above `default:`
-	
-	```
-	case ICP_ADF_RING_SERVICE_9:
-		return SAL_RING_TYPE_TRNG;
-	case ICP_ADF_RING_SERVICE_10:
-	```
-
 
 3. Change owner permissions for build output directory:
 	

@@ -382,6 +382,7 @@ WOLFSSL_API int wc_AsyncSleep(word32 ms);
 
 /* Pthread Helpers */
 #ifndef WC_NO_ASYNC_THREADING
+#include <stdio.h>
 #include <pthread.h>
 #include <errno.h>
 #include <sched.h>

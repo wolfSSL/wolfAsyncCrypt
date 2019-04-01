@@ -268,6 +268,12 @@ wolfSSL Client Benchmark 16384 bytes
 
 ## Change Log
 
+### wolfSSL Async Release v4.0.0 (03/25/2019)
+
+* Fix for building with QuickAssist v1.7 driver (4.4.0-00023) (was missing usdm_drv during configure with check).
+* Fix for building async with file system disabled.
+* Fix for SHA-3 runtime detection for not supported in hardware.
+
 ### wolfSSL Async Release v3.15.8 (03/01/2019) - Intermediate release
 
 * Performance improvements for QuickAssist.
