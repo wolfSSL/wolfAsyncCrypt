@@ -174,7 +174,9 @@ typedef struct qaeMemHeader {
     pthread_t threadId;
 #endif
     size_t size;
-    int count;
+    word16 count;
+    word16 isNuma:1;
+    word16 reservedBits:15; /* use for future bits */
     word16 type;
     word16 numa_page_offset; /* use QAE_NOT_NUMA_PAGE if not NUMA */
 } ALIGN16 qaeMemHeader;
@@ -240,8 +242,6 @@ static WC_INLINE int qaeMemTypeIsNuma(int type)
         case DYNAMIC_TYPE_ASYNC_NUMA:
         case DYNAMIC_TYPE_ASYNC_NUMA64:
         case DYNAMIC_TYPE_WOLF_BIGINT:
-        case DYNAMIC_TYPE_OUT_BUFFER:
-        case DYNAMIC_TYPE_IN_BUFFER:
         case DYNAMIC_TYPE_PRIVATE_KEY:
         case DYNAMIC_TYPE_PUBLIC_KEY:
         case DYNAMIC_TYPE_AES_BUFFER:
@@ -256,7 +256,18 @@ static WC_INLINE int qaeMemTypeIsNuma(int type)
             isNuma = 1;
             break;
         }
+        case DYNAMIC_TYPE_OUT_BUFFER:
+        case DYNAMIC_TYPE_IN_BUFFER:
+        {
+        #if !defined(WC_ASYNC_NO_CRYPT) && !defined(WC_ASYNC_NO_HASH)
+            isNuma = 1;
+        #else
+            isNuma = 0;
+        #endif
+            break;
+        }
         default:
+            isNuma = 0;
             break;
     }
     return isNuma;
@@ -351,7 +362,7 @@ static void _qaeMemFree(void *ptr, void* heap, int type
 #endif
 
     /* free type */
-    if (header->numa_page_offset != QAE_NOT_NUMA_PAGE) {
+    if (header->isNuma && header->numa_page_offset != QAE_NOT_NUMA_PAGE) {
     #ifdef QAT_V2
         qaeMemFreeNUMA(&ptr);
     #else
@@ -397,7 +408,7 @@ static void* _qaeMemAlloc(size_t size, void* heap, int type
             alignment, &page_offset);
     #endif
     }
-    if (ptr == NULL) {
+    else if (ptr == NULL) {
         isNuma = 0;
         ptr = malloc(size + sizeof(qaeMemHeader));
     }
@@ -411,6 +422,7 @@ static void* _qaeMemAlloc(size_t size, void* heap, int type
         header->size = size;
         header->type = type;
         header->count = 1;
+        header->isNuma = isNuma;
         header->numa_page_offset = page_offset;
     #ifdef USE_QAE_THREAD_LS
         header->threadId = pthread_self();

@@ -505,7 +505,7 @@ int IntelQaInit(void* threadId)
     }
 
     /* assign device id */
-    devId = (g_instCounter % g_numInstances);;
+    devId = (g_instCounter % g_numInstances);
     g_instCounter++;
 
     pthread_mutex_unlock(&g_Hwlock);
@@ -1685,7 +1685,6 @@ static void IntelQaRsaPublicFree(WC_ASYNC_DEV* dev)
             XFREE(opData->inputData.pData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
             opData->inputData.pData = NULL;
         }
-        XMEMSET(opData->pPublicKey, 0, sizeof(CpaCyRsaPublicKey));
         XMEMSET(opData, 0, sizeof(CpaCyRsaEncryptOpData));
     }
     if (outBuf) {
