@@ -408,7 +408,7 @@ static void* _qaeMemAlloc(size_t size, void* heap, int type
             alignment, &page_offset);
     #endif
     }
-    else if (ptr == NULL) {
+    else {
         isNuma = 0;
         ptr = malloc(size + sizeof(qaeMemHeader));
     }
