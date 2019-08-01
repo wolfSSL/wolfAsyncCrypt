@@ -33,7 +33,7 @@ static inline const char *vf_config_mode_str(vf_config_type_t vf_mode)
 
 b. Add `case PF:` to `include/vf_defs.h:82` above `default:` in `vf_config_mode_to_num_vfs()`.
 
-c. In `/include/linux/sysdep.h:46` rename `__BYTED_ORDER` to `__BYTE_ORDER`.
+c. In `include/linux/sysdep.h:46` rename `__BYTED_ORDER` to `__BYTE_ORDER`.
 
 
 2. If the CNN55XX driver is not extracted on the Linux box it can cause issues with the symbolic links in the microcode folder. Fix was to resolve the symbolic links in `./microcode`.
