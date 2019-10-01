@@ -3983,17 +3983,30 @@ static void IntelQaDhAgreeCallback(void *pCallbackTag, CpaStatus status,
 #endif
 
     if (status == CPA_STATUS_SUCCESS) {
-        /* validate returned output */
+        word32 idxTrim = 0;
+        byte* out = (byte*)pOut->pData;
+
+        /* check output size */
         if (dev->qat.outLenPtr) {
             if (pOut->dataLenInBytes > *dev->qat.outLenPtr) {
                 pOut->dataLenInBytes = *dev->qat.outLenPtr;
             }
-            *dev->qat.outLenPtr = pOut->dataLenInBytes;
         }
 
-        /* return data */
-        if (dev->qat.out && dev->qat.out != pOut->pData) {
-            XMEMCPY(dev->qat.out, pOut->pData, pOut->dataLenInBytes);
+        /* count leading zeros */
+        while (out[idxTrim] == 0 && idxTrim < pOut->dataLenInBytes) {
+            idxTrim++;
+        }
+        pOut->dataLenInBytes -= idxTrim;
+
+        /* return data and trim leading zeros */
+        if (dev->qat.out && (dev->qat.out != pOut->pData || idxTrim > 0)) {
+            XMEMCPY(dev->qat.out, &out[idxTrim], pOut->dataLenInBytes);
+        }
+
+        /* return final length */
+        if (dev->qat.outLenPtr) {
+            *dev->qat.outLenPtr = pOut->dataLenInBytes;
         }
 
         /* mark event result */
