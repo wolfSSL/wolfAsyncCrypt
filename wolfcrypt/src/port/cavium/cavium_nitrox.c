@@ -793,7 +793,7 @@ static int NitroxAesDecrypt(Aes* aes, int aes_algo,
 int NitroxAesCbcEncrypt(Aes* aes, byte* out, const byte* in, word32 length)
 {
     return NitroxAesEncrypt(aes, AES_CBC,
-        (byte*)aes->asyncKey, (byte*)aes->asyncIv,
+        (byte*)aes->devKey, (byte*)aes->reg,
         out, in, length, 0, NULL, NULL);
 }
 
@@ -801,7 +801,7 @@ int NitroxAesCbcEncrypt(Aes* aes, byte* out, const byte* in, word32 length)
 int NitroxAesCbcDecrypt(Aes* aes, byte* out, const byte* in, word32 length)
 {
     return NitroxAesDecrypt(aes, AES_CBC,
-        (byte*)aes->asyncKey, (byte*)aes->asyncIv,
+        (byte*)aes->devKey, (byte*)aes->reg,
         out, in, length, 0, NULL, NULL);
 }
 #endif /* HAVE_AES_DECRYPT */
@@ -930,13 +930,13 @@ int NitroxDes3CbcEncrypt(Des3* des3, byte* out, const byte* in, word32 length)
         cav_ret = CspEncrypt3Des(des3->asyncDev.nitrox.devId, blockMode,
             DMA_DIRECT_DIRECT, CAVIUM_SSL_GRP, CAVIUM_DPORT,
             des3->asyncDev.nitrox.contextHandle, FROM_DPTR, FROM_CTX, DES3_CBC,
-            (byte*)des3->key_raw, (byte*)des3->iv_raw, (word16)slen, (byte*)in + offset,
+            (byte*)des3->devKey, (byte*)des3->reg, (word16)slen, (byte*)in + offset,
             out + offset, &des3->asyncDev.nitrox.reqId);
     #else
         cav_ret = CspEncrypt3Des(blockMode,
             des3->asyncDev.nitrox.contextHandle, CAVIUM_NO_UPDATE, (word16)slen,
-            (byte*)in + offset, out + offset, (byte*)des3->iv_raw,
-            (byte*)des3->key_raw, &des3->asyncDev.nitrox.reqId,
+            (byte*)in + offset, out + offset, (byte*)des3->reg,
+            (byte*)des3->devKey, &des3->asyncDev.nitrox.reqId,
             des3->asyncDev.nitrox.devId);
     #endif
         ret = NitroxTranslateResponseCode(cav_ret);
@@ -978,13 +978,13 @@ int NitroxDes3CbcDecrypt(Des3* des3, byte* out, const byte* in, word32 length)
         cav_ret = CspDecrypt3Des(des3->asyncDev.nitrox.devId, blockMode,
             DMA_DIRECT_DIRECT, CAVIUM_SSL_GRP, CAVIUM_DPORT,
             des3->asyncDev.nitrox.contextHandle, FROM_DPTR, FROM_CTX, DES3_CBC,
-            (byte*)des3->key_raw, (byte*)des3->iv_raw, (word16)slen, (byte*)in + offset,
+            (byte*)des3->devKey, (byte*)des3->reg, (word16)slen, (byte*)in + offset,
             out + offset, &des3->asyncDev.nitrox.reqId);
     #else
         cav_ret = CspDecrypt3Des(blockMode,
             des3->asyncDev.nitrox.contextHandle, CAVIUM_NO_UPDATE, (word16)slen,
-            (byte*)in + offset, out + offset, (byte*)des3->iv_raw,
-            (byte*)des3->key_raw, &des3->asyncDev.nitrox.reqId,
+            (byte*)in + offset, out + offset, (byte*)des3->reg,
+            (byte*)des3->devKey, &des3->asyncDev.nitrox.reqId,
             des3->asyncDev.nitrox.devId);
     #endif
         ret = NitroxTranslateResponseCode(cav_ret);

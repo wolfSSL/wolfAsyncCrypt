@@ -2180,6 +2180,17 @@ static void IntelQaSymCipherCallback(void *pCallbackTag, CpaStatus status,
                 XMEMCPY(dev->qat.out, pDstBuffer->pBuffers->pData, outLen);
             }
 
+            /* capture IV for next call */
+            if (dev->qat.op.cipher.iv && dev->qat.op.cipher.ivSz > 0) {
+                word32 ivSz = dev->qat.op.cipher.ivSz;
+                if (ivSz > outLen)
+                    ivSz = outLen;
+                /* copy last block */
+                XMEMCPY(dev->qat.op.cipher.iv,
+                        &pDstBuffer->pBuffers->pData[outLen - ivSz],
+                        ivSz);
+            }
+
         #ifndef NO_AES
             /* return authTag */
             if (dev->qat.op.cipher.authTag && dev->qat.op.cipher.authTagSz > 0) {
@@ -2207,7 +2218,7 @@ static void IntelQaSymCipherCallback(void *pCallbackTag, CpaStatus status,
 }
 
 static int IntelQaSymCipher(WC_ASYNC_DEV* dev, byte* out, const byte* in,
-    word32 inOutSz, const byte* key, word32 keySz, const byte* iv, word32 ivSz,
+    word32 inOutSz, const byte* key, word32 keySz, byte* iv, word32 ivSz,
     CpaCySymOp symOperation, CpaCySymCipherAlgorithm cipherAlgorithm,
     CpaCySymCipherDirection cipherDirection,
 
@@ -2352,6 +2363,20 @@ static int IntelQaSymCipher(WC_ASYNC_DEV* dev, byte* out, const byte* in,
     /* store info needed for output */
     dev->qat.out = out;
     dev->qat.outLen = inOutSz;
+    /* optional return of next IV */
+    if (cipherAlgorithm != CPA_CY_SYM_CIPHER_AES_GCM && iv) {
+        if (ivSz > inOutSz)
+            ivSz = inOutSz;
+        if (cipherDirection == CPA_CY_SYM_CIPHER_DIRECTION_ENCRYPT) {
+            /* capture this on the callback */
+            dev->qat.op.cipher.iv = iv;
+            dev->qat.op.cipher.ivSz = ivSz;
+        }
+        else {
+            /* capture last block of input as next IV */
+            XMEMCPY(iv, &in[inOutSz - ivSz], ivSz);
+        }
+    }
     if (cipherDirection == CPA_CY_SYM_CIPHER_DIRECTION_ENCRYPT) {
         dev->qat.op.cipher.authTag = authTag;
         dev->qat.op.cipher.authTagSz = authTagSz;
@@ -2394,7 +2419,7 @@ exit:
 int IntelQaSymAesCbcEncrypt(WC_ASYNC_DEV* dev,
             byte* out, const byte* in, word32 sz,
             const byte* key, word32 keySz,
-            const byte* iv, word32 ivSz)
+            byte* iv, word32 ivSz)
 {
     return IntelQaSymCipher(dev, out, in, sz,
         key, keySz, iv, ivSz,
@@ -2407,7 +2432,7 @@ int IntelQaSymAesCbcEncrypt(WC_ASYNC_DEV* dev,
 int IntelQaSymAesCbcDecrypt(WC_ASYNC_DEV* dev,
             byte* out, const byte* in, word32 sz,
             const byte* key, word32 keySz,
-            const byte* iv, word32 ivSz)
+            byte* iv, word32 ivSz)
 {
     return IntelQaSymCipher(dev, out, in, sz,
         key, keySz, iv, ivSz,
@@ -2428,7 +2453,7 @@ int IntelQaSymAesGcmEncrypt(WC_ASYNC_DEV* dev,
             const byte* authIn, word32 authInSz)
 {
     return IntelQaSymCipher(dev, out, in, sz,
-        key, keySz, iv, ivSz,
+        key, keySz, (byte*)iv, ivSz,
         CPA_CY_SYM_OP_ALGORITHM_CHAINING, CPA_CY_SYM_CIPHER_AES_GCM,
         CPA_CY_SYM_CIPHER_DIRECTION_ENCRYPT,
         CPA_CY_SYM_HASH_AES_GCM, authTag, authTagSz, authIn, authInSz);
@@ -2442,7 +2467,7 @@ int IntelQaSymAesGcmDecrypt(WC_ASYNC_DEV* dev,
             const byte* authIn, word32 authInSz)
 {
     return IntelQaSymCipher(dev, out, in, sz,
-        key, keySz, iv, ivSz,
+        key, keySz, (byte*)iv, ivSz,
         CPA_CY_SYM_OP_ALGORITHM_CHAINING, CPA_CY_SYM_CIPHER_AES_GCM,
         CPA_CY_SYM_CIPHER_DIRECTION_DECRYPT,
         CPA_CY_SYM_HASH_AES_GCM, (byte*)authTag, authTagSz, authIn, authInSz);
@@ -2454,7 +2479,7 @@ int IntelQaSymAesGcmDecrypt(WC_ASYNC_DEV* dev,
 int IntelQaSymDes3CbcEncrypt(WC_ASYNC_DEV* dev,
             byte* out, const byte* in, word32 sz,
             const byte* key, word32 keySz,
-            const byte* iv, word32 ivSz)
+            byte* iv, word32 ivSz)
 {
     return IntelQaSymCipher(dev, out, in, sz,
         key, keySz, iv, ivSz,
@@ -2466,7 +2491,7 @@ int IntelQaSymDes3CbcEncrypt(WC_ASYNC_DEV* dev,
 int IntelQaSymDes3CbcDecrypt(WC_ASYNC_DEV* dev,
             byte* out, const byte* in, word32 sz,
             const byte* key, word32 keySz,
-            const byte* iv, word32 ivSz)
+            byte* iv, word32 ivSz)
 {
     return IntelQaSymCipher(dev, out, in, sz,
         key, keySz, iv, ivSz,
