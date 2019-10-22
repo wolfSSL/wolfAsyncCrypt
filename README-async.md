@@ -268,6 +268,12 @@ wolfSSL Client Benchmark 16384 bytes
 
 ## Change Log
 
+### wolfSSL Async Release v4.2.0 (10/22/2019)
+* Fix for QuickAssist DH Agree issue with leading zero bytes.
+* Fix for QuickAssist AES CBC issue with previous IV on back-to-back operations.
+* Updates to QuickAssist README.md for latest QAT v1.7 driver.
+* Instructions for Octeon III (CN7300) use.
+
 ### wolfSSL Async Release v4.0.0 (03/25/2019)
 
 * Fix for building with QuickAssist v1.7 driver (4.4.0-00023) (was missing usdm_drv during configure with check).

@@ -26,14 +26,16 @@ Note: If you have the older driver installed you may need to remove it or unload
 	
 	Prerequisites: 
 	`sudo apt-get install libudev-dev`
+	OR
+	`sudo yum install systemd-devel`
 	
 	
 	```
-	curl -o qat1.7.l.4.6.0-00025.tar.gz https://01.org/sites/default/files/downloads/qat1.7.l.4.6.0-00025.tar.gz
+	curl -o qat1.7.l.4.7.0-00006.tar.gz https://01.org/sites/default/files/downloads/qat1.7.l.4.7.0-00006.tar.gz
 	mkdir QAT1.7
-	mv qat1.7.l.4.5.0-00034.tar.gz QAT1.7
+	mv qat1.7.l.4.7.0-00006.tar.gz QAT1.7
 	cd QAT1.7
-	tar -xvzf qat1.7.l.4.6.0-00025.tar.gz
+	tar -xvzf qat1.7.l.4.7.0-00006.tar.gz
 	./configure
 	make
 	sudo make install

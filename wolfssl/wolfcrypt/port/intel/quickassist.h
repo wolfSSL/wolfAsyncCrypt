@@ -226,6 +226,8 @@ typedef struct IntelQaDev {
             CpaFlatBuffer flatBuffer;
             byte* authTag;
             word32 authTagSz;
+            byte* iv;
+            word32 ivSz;
         } cipher;
     #endif
     #if defined(QAT_ENABLE_PKI) && defined(HAVE_ECC)
@@ -345,12 +347,12 @@ WOLFSSL_LOCAL int IntelQaGetCyInstanceCount(void);
         WOLFSSL_LOCAL int IntelQaSymAesCbcEncrypt(struct WC_ASYNC_DEV* dev,
             byte* out, const byte* in, word32 sz,
             const byte* key, word32 keySz,
-            const byte* iv, word32 ivSz);
+            byte* iv, word32 ivSz);
     #ifdef HAVE_AES_DECRYPT
         WOLFSSL_LOCAL int IntelQaSymAesCbcDecrypt(struct WC_ASYNC_DEV* dev,
             byte* out, const byte* in, word32 sz,
             const byte* key, word32 keySz,
-            const byte* iv, word32 ivSz);
+            byte* iv, word32 ivSz);
     #endif /* HAVE_AES_DECRYPT */
     #endif /* HAVE_AES_CBC */
 
@@ -376,11 +378,11 @@ WOLFSSL_LOCAL int IntelQaGetCyInstanceCount(void);
     WOLFSSL_LOCAL int IntelQaSymDes3CbcEncrypt(struct WC_ASYNC_DEV* dev,
                 byte* out, const byte* in, word32 sz,
                 const byte* key, word32 keySz,
-                const byte* iv, word32 ivSz);
+                byte* iv, word32 ivSz);
     WOLFSSL_LOCAL int IntelQaSymDes3CbcDecrypt(struct WC_ASYNC_DEV* dev,
                 byte* out, const byte* in, word32 sz,
                 const byte* key, word32 keySz,
-                const byte* iv, word32 ivSz);
+                byte* iv, word32 ivSz);
 #endif /*! NO_DES3 */
 
 #ifdef WOLFSSL_SHA512
