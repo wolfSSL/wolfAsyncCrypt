@@ -200,7 +200,10 @@ cd examples
 ln -s ../../wolfssl wolfssl
 cd wolfssl
 ./autogen.sh
-./configure --host=mips64 CC="mips64-octeon-linux-gnu-gcc -mabi=64" --with-octeon=/home/dgarske/OCTEON-SDK --enable-des3 --enable-debug --disable-shared CFLAGS="-DWOLFSSL_AES_DIRECT"
+./configure --host=mips64 CC="mips64-octeon-linux-gnu-gcc -mabi=64" \
+	--with-octeon-sync=../OCTEON-SDK OCTEON_OBJ=obj-octeon3 \
+	--enable-cryptocb --enable-des3 CPPFLAGS="-DWOLFSSL_AES_DIRECT" \
+	CFLAGS="-Wno-error=redundant-decls"
 make
 
 ```

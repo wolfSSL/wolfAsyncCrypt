@@ -14,7 +14,7 @@ The async crypt simulator is enabled by default if the hardware does not support
 
 Each crypto algorithm has its own `WC_ASYNC_DEV` structure, which contains a `WOLF_EVENT`, local crypto context and local hardware context.
 
-For SSL/TLS the `WOLF_EVENT` context is the `WOLFSSL*` and the type is `WOLF_EVENT_TYPE_ASYNC_WOLFSSL`. For wolfCrypt operations the `WOLF_EVENT` context is the `WC_ASYNC_DEV*` and the type is `WOLF_EVENT_TYPE_ASYNC_WOLFCRYPT`. 
+For SSL/TLS the `WOLF_EVENT` context is the `WOLFSSL*` and the type is `WOLF_EVENT_TYPE_ASYNC_WOLFSSL`. For wolfCrypt operations the `WOLF_EVENT` context is the `WC_ASYNC_DEV*` and the type is `WOLF_EVENT_TYPE_ASYNC_WOLFCRYPT`.
 
 A generic event system has been created using a `WOLF_EVENT` structure when `HAVE_WOLF_EVENT` is defined. The event structure resides in the `WC_ASYNC_DEV`.
 
@@ -49,7 +49,7 @@ Polls the provided WOLFSSL_CTX context event queue to see if any pending events 
 int wolfAsync_DevOpen(int *devId);
 ```
 
-Open the async device and returns an `int` device id for it. 
+Open the async device and returns an `int` device id for it.
 
 ### ```wolfAsync_DevOpenThread```
 ```
@@ -175,13 +175,13 @@ Stops hardware if internal `--start_count == 0`.
 	       if (ret < 0) { break; } else if (ret == 0) { continue; }
 	    }
 	#endif
-	
+
 	    ret = wolfSSL_accept(ssl);
 	    if (ret != SSL_SUCCESS) {
 	        err = wolfSSL_get_error(ssl, 0);
 	    }
 	} while (ret != SSL_SUCCESS && err == WC_PENDING_E);
-    
+
 #ifdef WOLFSSL_ASYNC_CRYPT
     wolfAsync_DevClose(&devId);
 #endif
@@ -201,9 +201,9 @@ Stops hardware if internal `--start_count == 0`.
 
 	RsaKey key;
 	ret = wc_InitRsaKey_ex(&key, HEAP_HINT, devId);
-	
+
 	ret = wc_RsaPrivateKeyDecode(tmp, &idx, &key, (word32)bytes);
-	
+
 	do {
 #if defined(WOLFSSL_ASYNC_CRYPT)
         ret = wc_AsyncWait(ret, &key.asyncDev, WC_ASYNC_FLAG_CALL_AGAIN);
@@ -215,7 +215,7 @@ Stops hardware if internal `--start_count == 0`.
     if (ret < 0) {
         err_sys("RsaPublicEncrypt operation failed");
     }
-    
+
 #ifdef WOLFSSL_ASYNC_CRYPT
     wolfAsync_DevClose(&devId);
 #endif
@@ -223,7 +223,7 @@ Stops hardware if internal `--start_count == 0`.
 
 ## Build Options
 
-1. Async mult-threading can be disabled by defining `WC_NO_ASYNC_THREADING`. 
+1. Async mult-threading can be disabled by defining `WC_NO_ASYNC_THREADING`.
 2. Software benchmarks can be disabled by defining `NO_SW_BENCH`.
 3. The `WC_ASYNC_THRESH_NONE` define can be used to disable the cipher thresholds, which are tunable values to determine at what size hardware should be used vs. software.
 4. Use `WOLFSSL_DEBUG_MEMORY` and `WOLFSSL_TRACK_MEMORY` to help debug memory issues. QAT also supports `WOLFSSL_DEBUG_MEMORY_PRINT`.
@@ -268,6 +268,10 @@ wolfSSL Client Benchmark 16384 bytes
 
 ## Change Log
 
+### wolfSSL Async Release v4.3.0 (12/20/2019)
+* Fix for async date override callback issue.
+* Updates to Octeon README.
+
 ### wolfSSL Async Release v4.2.0 (10/22/2019)
 * Fix for QuickAssist DH Agree issue with leading zero bytes.
 * Fix for QuickAssist AES CBC issue with previous IV on back-to-back operations.
@@ -289,7 +293,7 @@ wolfSSL Client Benchmark 16384 bytes
 * Enhanced the Cavium macros for `CAVIUM_MAX_PENDING` and `CAVIUM_MAX_POLL` over-ridable.
 * Added build-time override for benchmark thread count `WC_ASYNC_BENCH_THREAD_COUNT`.
 * Fixes for wolfCrypt test with asynchronous support enabled and `--enable-nginx`.
-* Fix to use QAT for ECC sign and verify when SP is enabled and key was initialized with devId. 
+* Fix to use QAT for ECC sign and verify when SP is enabled and key was initialized with devId.
 * Fixes issues with wolfCrypt test and QAT not properly calling "again" for the ECC sign, verify and shared secret.
 * Correct the output for multi-threaded benchmark using `-base10` option.
 * Fixes to QAT HMAC enables in benchmark tool.
@@ -348,7 +352,7 @@ wolfSSL Client Benchmark 16384 bytes
 * Fix QAT_DEBUG partialState offset.
 * Fixes for symmetric context caching.
 * Refactored async event initialization so its done prior to making possible async calls.
-* Fix to resolve issue with QAT callbacks and multi-threading. 
+* Fix to resolve issue with QAT callbacks and multi-threading.
 * The cleanup is now handled in polling function and the event is only marked done from the polling thread that matches the originating thread.
 * Fix possible mem leak with multiple threads `g_qatEcdhY` and `g_qatEcdhCofactor1`.
 * Fix the block polling to use `ret` instead of `status`.
@@ -420,7 +424,7 @@ wolfSSL Client Benchmark 16384 bytes
 
 ### wolfSSL Async Release v3.9.8 (07/25/2016)
 
-* Asynchronous wolfCrypt and Cavium Nitrox V support. 
+* Asynchronous wolfCrypt and Cavium Nitrox V support.
 
 ### wolfSSL Async Release v3.9.0 (03/04/2016)
 
