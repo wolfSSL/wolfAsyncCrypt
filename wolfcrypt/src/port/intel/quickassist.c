@@ -121,9 +121,16 @@ static pthread_mutex_t g_Hwlock = PTHREAD_MUTEX_INITIALIZER;
 typedef struct qatCapabilities {
     /* capabilities */
     word32 supPartial:1;
+#ifdef QAT_V2
     word32 supSha3:1;
+#endif
 } qatCapabilities_t;
-static qatCapabilities_t g_qatCapabilities = {0};
+static qatCapabilities_t g_qatCapabilities = {
+    0
+    #ifdef QAT_V2
+    , 0
+    #endif
+};
 
 
 #if defined(QAT_ENABLE_CRYPTO) || defined(QAT_ENABLE_HASH)
