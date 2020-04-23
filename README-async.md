@@ -268,11 +268,20 @@ wolfSSL Client Benchmark 16384 bytes
 
 ## Change Log
 
+### wolfSSL Async Release v4.4.0 (04/24/2020)
+
+* Fix for uninitialized `supSha3` warning.
+* Fix for use of incorrect devId for wolfSSL_SHA3_256_Init.
+* Fix for QAT with Shake256.
+* Fix for QAT example `./build.sh`.
+
 ### wolfSSL Async Release v4.3.0 (12/20/2019)
+
 * Fix for async date override callback issue.
 * Updates to Octeon README.
 
 ### wolfSSL Async Release v4.2.0 (10/22/2019)
+
 * Fix for QuickAssist DH Agree issue with leading zero bytes.
 * Fix for QuickAssist AES CBC issue with previous IV on back-to-back operations.
 * Updates to QuickAssist README.md for latest QAT v1.7 driver.
