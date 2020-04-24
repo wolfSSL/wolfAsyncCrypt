@@ -28,7 +28,6 @@
 #ifdef HAVE_INTEL_QA
 
 #ifdef QAT_DEMO_MAIN
-    #define QAT_DEBUG
     #define QAT_USE_POLLING_THREAD
 #endif
 
@@ -4640,6 +4639,7 @@ int main(int argc, char** argv)
 
     IntelQaInit(NULL);
 
+#ifdef QAT_ENABLE_RNG
     /* DRBG Test */
     IntelQaOpen(&dev, 0);
     ret = IntelQaDrbg(&dev, out, sizeof(out));
@@ -4649,6 +4649,7 @@ int main(int argc, char** argv)
     ret = IntelQaDrbg(&dev, out, sizeof(out));
     printf("RNG2: Ret=%d\n", ret);
     IntelQaClose(&dev);
+#endif
 
 #ifndef NO_RSA
     IntelQaOpen(&dev, 0);
