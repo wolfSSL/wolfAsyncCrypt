@@ -64,6 +64,14 @@ void wolfAsync_DevClose(int *devId)
 
 Closes the async device.
 
+### ```wolfAsync_DevCopy```
+
+```
+int wolfAsync_DevCopy(WC_ASYNC_DEV* src, WC_ASYNC_DEV* dst);
+```
+
+Copy async device memory safe (not pointers to old device).
+
 ### ```wolfAsync_DevCtxInit```
 ```
 int wolfAsync_DevCtxInit(WC_ASYNC_DEV* asyncDev, word32 marker, void* heap, int devId);
@@ -156,74 +164,60 @@ Stops hardware if internal `--start_count == 0`.
 
 ### TLS Server Example
 
-```
-#ifdef WOLFSSL_ASYNC_CRYPT
-    static int devId = INVALID_DEVID;
+```c
+int devId = INVALID_DEVID;
 
-    ret = wolfAsync_DevOpen(&devId);
-    if (ret != 0) {
-        err_sys("Async device open failed");
+ret = wolfAsync_DevOpen(&devId);
+if (ret != 0) {
+    err_sys("Async device open failed");
+}
+wolfSSL_CTX_SetDevId(ctx, devId);
+
+do {
+    err = 0; /* reset error */
+    ret = wolfSSL_accept(ssl, msg, msgSz, &msgSz);
+    if (ret <= 0) {
+        err = wolfSSL_get_error(ssl, 0);
+        if (err == WC_PENDING_E) {
+            ret = wolfSSL_AsyncPoll(ssl, WOLF_POLL_FLAG_CHECK_HW);
+            if (ret < 0) break;
+        }
     }
-    wolfSSL_CTX_UseAsync(ctx, devId);
-#endif /* WOLFSSL_ASYNC_CRYPT */
+} while (err == WC_PENDING_E);
+if (ret != WOLFSSL_SUCCESS) {
+    err_sys("SSL_connect failed");
+}
 
-	err = 0;
-	do {
-	#ifdef WOLFSSL_ASYNC_CRYPT
-	    if (err == WC_PENDING_E) {
-	       ret = wolfSSL_AsyncPoll(ssl);
-	       if (ret < 0) { break; } else if (ret == 0) { continue; }
-	    }
-	#endif
-
-	    ret = wolfSSL_accept(ssl);
-	    if (ret != SSL_SUCCESS) {
-	        err = wolfSSL_get_error(ssl, 0);
-	    }
-	} while (ret != SSL_SUCCESS && err == WC_PENDING_E);
-
-#ifdef WOLFSSL_ASYNC_CRYPT
-    wolfAsync_DevClose(&devId);
-#endif
+wolfAsync_DevClose(&devId);
 ```
 
 ### wolfCrypt RSA Example
 
-```
-#ifdef WOLFSSL_ASYNC_CRYPT
-    static int devId = INVALID_DEVID;
+```c
+static int devId = INVALID_DEVID;
+RsaKey key;
 
-    ret = wolfAsync_DevOpen(&devId);
-    if (ret != 0) {
-        err_sys("Async device open failed");
-    }
-#endif /* WOLFSSL_ASYNC_CRYPT */
+ret = wolfAsync_DevOpen(&devId);
+if (ret != 0)
+    err_sys("Async device open failed");
 
-	RsaKey key;
-	ret = wc_InitRsaKey_ex(&key, HEAP_HINT, devId);
-
-	ret = wc_RsaPrivateKeyDecode(tmp, &idx, &key, (word32)bytes);
-
-	do {
-#if defined(WOLFSSL_ASYNC_CRYPT)
+wc_InitRsaKey_ex(&key, HEAP_HINT, devId);
+if (ret == 0) {
+    ret = wc_RsaPrivateKeyDecode(tmp, &idx, &key, (word32)bytes);
+    do {
         ret = wc_AsyncWait(ret, &key.asyncDev, WC_ASYNC_FLAG_CALL_AGAIN);
-#endif
-        if (ret >= 0) {
+        if (ret >= 0)
             ret = wc_RsaPublicEncrypt(in, inLen, out, outSz, &key, &rng);
-        }
     } while (ret == WC_PENDING_E);
-    if (ret < 0) {
-        err_sys("RsaPublicEncrypt operation failed");
-    }
+    wc_FreeRsaKey(&key);
+}
 
-#ifdef WOLFSSL_ASYNC_CRYPT
-    wolfAsync_DevClose(&devId);
-#endif
+wolfAsync_DevClose(&devId);
 ```
 
 ## Build Options
 
-1. Async mult-threading can be disabled by defining `WC_NO_ASYNC_THREADING`.
+1. Async multi-threading can be disabled by defining `WC_NO_ASYNC_THREADING`.
 2. Software benchmarks can be disabled by defining `NO_SW_BENCH`.
 3. The `WC_ASYNC_THRESH_NONE` define can be used to disable the cipher thresholds, which are tunable values to determine at what size hardware should be used vs. software.
 4. Use `WOLFSSL_DEBUG_MEMORY` and `WOLFSSL_TRACK_MEMORY` to help debug memory issues. QAT also supports `WOLFSSL_DEBUG_MEMORY_PRINT`.
@@ -239,31 +233,53 @@ We have a full TLS client/server async examples here:
 
 * [https://github.com/wolfSSL/wolfssl-examples/blob/master/tls/client-tls-perf.c](https://github.com/wolfSSL/wolfssl-examples/blob/master/tls/client-tls-perf.c)
 
-#### Usage
+#### TLS Threaded epoll Example Building
 
-```
+```sh
 git clone git@github.com:wolfSSL/wolfssl-examples.git
 cd wolfssl-examples
 cd tls
+# For QuickAssist: Uncomment QAT lines at top of Makefile
 make
-sudo ./server-tls-epoll-perf
-sudo ./client-tls-perf
 ```
 
+#### TLS Threaded epoll Example Usage
+
+```sh
+$ ./client-tls-perf -?
+perf 4.5.0 (NOTE: All files relative to wolfSSL home dir)
+-?          Help, print this usage
+-p <num>    Port to listen on, not 0, default 11111
+-v <num>    SSL version [0-3], SSLv3(0) - TLS1.2(3)), default 3
+-l <str>    Cipher suite list (: delimited)
+-c <file>   Certificate file,           default ../certs/client-cert.pem
+-k <file>   Key file,                   default ../certs/client-key.pem
+-A <file>   Certificate Authority file, default ../certs/ca-cert.pem
+-r          Resume session
+-n <num>    Benchmark <num> connections
+-N <num>    <num> concurrent connections
+-R <num>    <num> bytes read from client
+-W <num>    <num> bytes written to client
+-B <num>    Benchmark <num> written bytes
 ```
-Waiting for a connection...
-SSL cipher suite is TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
-wolfSSL Client Benchmark 16384 bytes
-	Num Conns         :       100
-	Total             :   777.080 ms
-	Total Avg         :     7.771 ms
-	t/s               :   128.687
-	Accept            :   590.556 ms
-	Accept Avg        :     5.906 ms
-	Total Read bytes  :   1638400 bytes
-	Total Write bytes :   1638400 bytes
-	Read              :    73.360 ms (   21.299 MBps)
-	Write             :    74.535 ms (   20.963 MBps)
+
+#### TLS Threaded epoll Example Output
+
+```sh
+$ sudo ./server-tls-epoll-threaded -n 10000
+$ sudo ./client-tls-perf -n 10000
+
+wolfSSL Server Benchmark 16384 bytes
+	Num Conns         :     10000
+	Total             : 18575.800 ms
+	Total Avg         :     1.858 ms
+	t/s               :   538.335
+	Accept            : 35848.428 ms
+	Accept Avg        :     3.585 ms
+	Total Read bytes  : 163840000 bytes
+	Total Write bytes : 163840000 bytes
+	Read              :   402.212 ms (  388.476 MBps)
+	Write             :   591.469 ms (  264.173 MBps)
 ```
 
 ## Change Log

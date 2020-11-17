@@ -23,26 +23,36 @@ Note: If you have the older driver installed you may need to remove it or unload
 1. Setup `QAT1.7` and `wolfssl` next to each other in the same folder.
 
 2. Build QAT 1.7
-	
-	Prerequisites: 
-	`sudo apt-get install libudev-dev`
-	OR
-	`sudo yum install systemd-devel`
-	
-	
-	```
-	curl -o qat1.7.l.4.7.0-00006.tar.gz https://01.org/sites/default/files/downloads/qat1.7.l.4.7.0-00006.tar.gz
-	mkdir QAT1.7
-	mv qat1.7.l.4.7.0-00006.tar.gz QAT1.7
-	cd QAT1.7
-	tar -xvzf qat1.7.l.4.7.0-00006.tar.gz
-	./configure
-	make
-	sudo make install
-	```
 
-	If you are using the QAT hardware hashing, you'll need to disable the params checking, which doesn't support a last partial with 0 length source input. Code runs and works, but parameter checking will fail.
-	Use `./configure --disable-param-check && sudo make install`
+Prerequisites: 
+`sudo apt-get install libudev-dev`
+OR
+`sudo yum install systemd-devel`
+
+```sh
+mkdir QAT1.7
+cd QAT1.7
+curl -o qat1.7.l.4.11.0-00001.tar.gz https://01.org/sites/default/files/downloads/qat1.7.l.4.11.0-00001.tar.gz
+tar -xvzf qat1.7.l.4.11.0-00001.tar.gz
+./configure
+make
+sudo make install
+...
+There is 3 QAT acceleration device(s) in the system:
+ qat_dev0 - type: c6xx,  inst_id: 0,  node_id: 1,  bsf: 0000:84:00.0,  #accel: 5 #engines: 10 state: up
+ qat_dev1 - type: c6xx,  inst_id: 1,  node_id: 1,  bsf: 0000:85:00.0,  #accel: 5 #engines: 10 state: up
+ qat_dev2 - type: c6xx,  inst_id: 2,  node_id: 1,  bsf: 0000:86:00.0,  #accel: 5 #engines: 10 state: up
+```
+
+```sh
+$ lspci -d 8086: | grep QuickAssist
+84:00.0 Co-processor: Intel Corporation C62x Chipset QuickAssist Technology (rev 04)
+85:00.0 Co-processor: Intel Corporation C62x Chipset QuickAssist Technology (rev 04)
+86:00.0 Co-processor: Intel Corporation C62x Chipset QuickAssist Technology (rev 04)
+```
+
+If you are using the QAT hardware hashing, you may need to disable the params checking, which doesn't support a last partial with 0 length source input. Code runs and works, but parameter checking will fail.
+Use `./configure --disable-param-check && sudo make install`
 
 3. Change owner permissions for build output directory:
 	
@@ -90,6 +100,8 @@ Here are some build options for tuning your use:
 6. `WC_ASYNC_NO_HASH`: When defined disables the QAT for hashing (MD5,SHA,SHA256,SHA512).
 7. `WC_ASYNC_NO_RNG`: When defined disables the QAT DRBG (default for QAT v1.7)
 8. `WC_NO_ASYNC_THREADING`: Disables the thread affinity code for optionally linking a thread to a specific QAT instance. To use this feature you must also define `WC_ASYNC_THREAD_BIND`.
+9. `WC_ASYNC_BENCH_THREAD_COUNT`: Use specific number of threads for benchmarking.
+10. `QAT_HASH_ENABLE_PARTIAL`: Enables partial hashing support, which allows sending blocks to hardware prior to final. Otherwise all hash updates are cached.
 
 The QuickAssist v1.6 driver uses its own memory management system in `quickassist_mem.c`. This can be tuned using the following defines:
 
@@ -100,15 +112,21 @@ For QuickAssist v1.7 the newer usdm memory driver is used directly.
 
 ### Recommended wolfSSL Build Options
 
-`./configure --with-intelqa=../QAT1.7 --enable-asynccrypt --enable-aesni --enable-intelasm --enable-intelrand CFLAGS="-DWC_ASYNC_NO_HASH"`
+```sh
+$ ./configure --with-intelqa=../QAT1.7 --enable-asynccrypt \
+	--enable-aesni --enable-intelasm \
+	--enable-sp --enable-sp-asm \
+	CFLAGS="-DWC_ASYNC_NO_HASH"
+```
 
-* `--enable-asynccrypt`: Enables asynchronous cryptography mode.
 * `--with-intelqa=../QAT1.7`: Enables the Intel QuickAssist mode.
+* `--enable-asynccrypt`: Enables asynchronous cryptography mode.
 * `--enable-aesni`: Enables the Intel AES-NI assembly speedups.
 * `--enable-intelasm`: Enables the Intel ASM (AVX/AVX2) speedups.
-* `--enable-intelrand`: Enables the Intel RDRAND support for RNG source.
+* `--enable-sp`: Enable Single Precision math to speedup standard key sizes and curves.
+* `--enable-sp-asm`: Enable Single Precision assembly speedups.
 * `WC_ASYNC_NO_HASH`: Disable the QAT hashing and use Intel AVX accelerated software hashing. Overhead for using QAT hashing is not yet well tuned.
-* `QAT_HASH_ENABLE_PARTIAL`: Enables partial hashing support, which allows sending blocks to hardware prior to final. Otherwise all hash updates are cached.
+
 
 ### wolfCrypt Test with QAT
 ```
@@ -123,261 +141,260 @@ RSA      test passed!
 Multiple concurrent threads will be started based on the number of CPU's available. If you want to exclude the software benchmarks use `./configure CFLAGS="-DNO_SW_BENCH"`.
 
 ```
-Intel QuickAssist DH8950 on i7-4790 CPU @ 3.60GHz:
+Intel QuickAssist DH8950 on Intel(R) Xeon(R) CPU E5-2678 v3 @ 2.50GHz:
 
-./configure --enable-sp --enable-sp-asm --enable-aesni --enable-intelasm --enable-intelrand --enable-keygen --enable-sha3 --enable-asynccrypt --with-intelqa=../QAT1.7 CFLAGS="-DWC_ASYNC_THRESH_NONE -DQAT_MAX_PENDING=40 -DWC_ASYNC_BENCH_THREAD_COUNT=2"									
+Recommended wolfSSL build options when benchmarking.
+$ ./configure --enable-sp --enable-sp-asm --enable-aesni --enable-intelasm --enable-intelrand --enable-keygen --enable-sha3 --enable-asynccrypt --with-intelqa=../QAT1.7 CFLAGS="-DWC_ASYNC_THRESH_NONE -DQAT_MAX_PENDING=40 -DWC_ASYNC_BENCH_THREAD_COUNT=2"
+$ make
 
-sudo ./wolfcrypt/benchmark/benchmark -rsa_sign -base10
+$ sudo ./wolfcrypt/benchmark/benchmark -rsa_sign -base10 -threads 2 -print
 ------------------------------------------------------------------------------
-wolfSSL version 3.15.8
+ wolfSSL version 4.5.0
 ------------------------------------------------------------------------------
-IntelQA: Instances 2
+IntelQA: Instances 18
 wolfCrypt Benchmark (block bytes 1048576, min 1.0 sec each)
 CPUs: 2
-RNG             SW    94 mB took 1.010 seconds,   93.464 mB/s Cycles per byte =  38.43
-RNG             SW    94 mB took 1.010 seconds,   93.461 mB/s Cycles per byte =  38.43
-RNG             SW  186.925 mB/s
-AES-128-CBC-enc SW   886 mB took 1.001 seconds,  885.070 mB/s Cycles per byte =   4.06
-AES-128-CBC-enc SW   886 mB took 1.001 seconds,  884.872 mB/s Cycles per byte =   4.06
-AES-128-CBC-enc SW 1769.941 mB/s
-AES-128-CBC-dec SW  6344 mB took 1.000 seconds, 6343.130 mB/s Cycles per byte =   0.57
-AES-128-CBC-dec SW  6349 mB took 1.001 seconds, 6344.508 mB/s Cycles per byte =   0.57
-AES-128-CBC-dec SW 12687.638 mB/s
-AES-192-CBC-enc SW   744 mB took 1.005 seconds,  740.798 mB/s Cycles per byte =   4.85
-AES-192-CBC-enc SW   744 mB took 1.005 seconds,  740.646 mB/s Cycles per byte =   4.85
-AES-192-CBC-enc SW 1481.444 mB/s
-AES-192-CBC-dec SW  5290 mB took 1.000 seconds, 5289.415 mB/s Cycles per byte =   0.68
-AES-192-CBC-dec SW  5295 mB took 1.001 seconds, 5290.046 mB/s Cycles per byte =   0.68
-AES-192-CBC-dec SW 10579.461 mB/s
-AES-256-CBC-enc SW   640 mB took 1.004 seconds,  637.188 mB/s Cycles per byte =   5.64
-AES-256-CBC-enc SW   640 mB took 1.004 seconds,  637.063 mB/s Cycles per byte =   5.64
-AES-256-CBC-enc SW 1274.250 mB/s
-AES-256-CBC-dec SW  4535 mB took 1.000 seconds, 4533.917 mB/s Cycles per byte =   0.79
-AES-256-CBC-dec SW  4535 mB took 1.001 seconds, 4532.766 mB/s Cycles per byte =   0.79
-AES-256-CBC-dec SW 9066.683 mB/s
-AES-128-CBC-enc HW  1442 mB took 1.001 seconds, 1441.028 mB/s Cycles per byte =   2.49
-AES-128-CBC-enc HW  1447 mB took 1.002 seconds, 1444.103 mB/s Cycles per byte =   2.49
-AES-128-CBC-enc HW 2885.131 mB/s
-AES-128-CBC-dec HW  1442 mB took 1.001 seconds, 1440.999 mB/s Cycles per byte =   2.49
-AES-128-CBC-dec HW  1447 mB took 1.002 seconds, 1444.088 mB/s Cycles per byte =   2.49
-AES-128-CBC-dec HW 2885.087 mB/s
-AES-192-CBC-enc HW  1442 mB took 1.000 seconds, 1441.401 mB/s Cycles per byte =   2.49
-AES-192-CBC-enc HW  1442 mB took 1.001 seconds, 1439.818 mB/s Cycles per byte =   2.49
-AES-192-CBC-enc HW 2881.219 mB/s
-AES-192-CBC-dec HW  1442 mB took 1.000 seconds, 1441.334 mB/s Cycles per byte =   2.49
-AES-192-CBC-dec HW  1447 mB took 1.002 seconds, 1444.251 mB/s Cycles per byte =   2.49
-AES-192-CBC-dec HW 2885.584 mB/s
-AES-256-CBC-enc HW  1447 mB took 1.001 seconds, 1445.147 mB/s Cycles per byte =   2.49
-AES-256-CBC-enc HW  1452 mB took 1.004 seconds, 1447.078 mB/s Cycles per byte =   2.48
-AES-256-CBC-enc HW 2892.226 mB/s
-AES-256-CBC-dec HW  1442 mB took 1.000 seconds, 1441.375 mB/s Cycles per byte =   2.49
-AES-256-CBC-dec HW  1447 mB took 1.002 seconds, 1444.462 mB/s Cycles per byte =   2.49
-AES-256-CBC-dec HW 2885.838 mB/s
-AES-128-GCM-enc SW  3235 mB took 1.001 seconds, 3231.592 mB/s Cycles per byte =   1.11
-AES-128-GCM-enc SW  3235 mB took 1.001 seconds, 3230.502 mB/s Cycles per byte =   1.11
-AES-128-GCM-enc SW 6462.095 mB/s
-AES-128-GCM-dec SW  3245 mB took 1.000 seconds, 3244.658 mB/s Cycles per byte =   1.11
-AES-128-GCM-dec SW  3245 mB took 1.000 seconds, 3244.577 mB/s Cycles per byte =   1.11
-AES-128-GCM-dec SW 6489.235 mB/s
-AES-192-GCM-enc SW  2946 mB took 1.001 seconds, 2943.599 mB/s Cycles per byte =   1.22
-AES-192-GCM-enc SW  2946 mB took 1.001 seconds, 2942.858 mB/s Cycles per byte =   1.22
-AES-192-GCM-enc SW 5886.458 mB/s
-AES-192-GCM-dec SW  2957 mB took 1.001 seconds, 2953.381 mB/s Cycles per byte =   1.22
-AES-192-GCM-dec SW  2957 mB took 1.001 seconds, 2952.897 mB/s Cycles per byte =   1.22
-AES-192-GCM-dec SW 5906.279 mB/s
-AES-256-GCM-enc SW  2674 mB took 1.001 seconds, 2671.337 mB/s Cycles per byte =   1.34
-AES-256-GCM-enc SW  2674 mB took 1.002 seconds, 2669.787 mB/s Cycles per byte =   1.35
-AES-256-GCM-enc SW 5341.123 mB/s
-AES-256-GCM-dec SW  2669 mB took 1.000 seconds, 2667.679 mB/s Cycles per byte =   1.35
-AES-256-GCM-dec SW  2669 mB took 1.001 seconds, 2666.469 mB/s Cycles per byte =   1.35
-AES-256-GCM-dec SW 5334.148 mB/s
-AES-128-GCM-enc HW  1442 mB took 1.001 seconds, 1440.080 mB/s Cycles per byte =   2.49
-AES-128-GCM-enc HW  1442 mB took 1.003 seconds, 1438.006 mB/s Cycles per byte =   2.50
-AES-128-GCM-enc HW 2878.085 mB/s
-AES-128-GCM-dec HW  1426 mB took 1.000 seconds, 1425.755 mB/s Cycles per byte =   2.52
-AES-128-GCM-dec HW  1431 mB took 1.002 seconds, 1428.727 mB/s Cycles per byte =   2.51
-AES-128-GCM-dec HW 2854.483 mB/s
-AES-192-GCM-enc HW  1442 mB took 1.000 seconds, 1441.746 mB/s Cycles per byte =   2.49
-AES-192-GCM-enc HW  1442 mB took 1.001 seconds, 1439.939 mB/s Cycles per byte =   2.49
-AES-192-GCM-enc HW 2881.685 mB/s
-AES-192-GCM-dec HW  1431 mB took 1.001 seconds, 1429.199 mB/s Cycles per byte =   2.51
-AES-192-GCM-dec HW  1431 mB took 1.003 seconds, 1427.428 mB/s Cycles per byte =   2.52
-AES-192-GCM-dec HW 2856.627 mB/s
-AES-256-GCM-enc HW  1442 mB took 1.002 seconds, 1439.472 mB/s Cycles per byte =   2.50
-AES-256-GCM-enc HW  1442 mB took 1.003 seconds, 1437.524 mB/s Cycles per byte =   2.50
-AES-256-GCM-enc HW 2876.996 mB/s
-AES-256-GCM-dec HW  1426 mB took 1.001 seconds, 1424.274 mB/s Cycles per byte =   2.52
-AES-256-GCM-dec HW  1431 mB took 1.003 seconds, 1426.456 mB/s Cycles per byte =   2.52
-AES-256-GCM-dec HW 2850.731 mB/s
-CHACHA          SW  3507 mB took 1.000 seconds, 3506.239 mB/s Cycles per byte =   1.02
-CHACHA          SW  3507 mB took 1.001 seconds, 3502.526 mB/s Cycles per byte =   1.03
-CHACHA          SW 7008.765 mB/s
-CHA-POLY        SW  2160 mB took 1.002 seconds, 2156.015 mB/s Cycles per byte =   1.67
-CHA-POLY        SW  2160 mB took 1.002 seconds, 2154.837 mB/s Cycles per byte =   1.67
-CHA-POLY        SW 4310.853 mB/s
-3DES            SW    37 mB took 1.083 seconds,   33.876 mB/s Cycles per byte = 106.02
-3DES            SW    37 mB took 1.083 seconds,   33.873 mB/s Cycles per byte = 106.04
-3DES            SW   67.749 mB/s
-3DES            HW   661 mB took 1.003 seconds,  658.478 mB/s Cycles per byte =   5.45
-3DES            HW   661 mB took 1.006 seconds,  656.463 mB/s Cycles per byte =   5.47
-3DES            HW 1314.941 mB/s
-MD5             SW   713 mB took 1.000 seconds,  712.913 mB/s Cycles per byte =   5.04
-MD5             SW   713 mB took 1.000 seconds,  712.804 mB/s Cycles per byte =   5.04
-MD5             SW 1425.718 mB/s
-MD5             HW   530 mB took 1.006 seconds,  526.545 mB/s Cycles per byte =   6.82
-MD5             HW   530 mB took 1.006 seconds,  526.414 mB/s Cycles per byte =   6.82
-MD5             HW 1052.959 mB/s
-POLY1305        SW  5615 mB took 1.000 seconds, 5614.316 mB/s Cycles per byte =   0.64
-POLY1305        SW  5615 mB took 1.000 seconds, 5613.031 mB/s Cycles per byte =   0.64
-POLY1305        SW 11227.347 mB/s
-SHA             SW   587 mB took 1.001 seconds,  586.620 mB/s Cycles per byte =   6.12
-SHA             SW   592 mB took 1.008 seconds,  587.841 mB/s Cycles per byte =   6.11
-SHA             SW 1174.461 mB/s
-SHA             HW   776 mB took 1.001 seconds,  775.345 mB/s Cycles per byte =   4.63
-SHA             HW   776 mB took 1.004 seconds,  773.138 mB/s Cycles per byte =   4.65
-SHA             HW 1548.483 mB/s
-SHA-224         SW   509 mB took 1.005 seconds,  506.222 mB/s Cycles per byte =   7.10
-SHA-224         SW   509 mB took 1.005 seconds,  506.164 mB/s Cycles per byte =   7.10
-SHA-224         SW 1012.386 mB/s
-SHA-224         HW   556 mB took 1.006 seconds,  552.593 mB/s Cycles per byte =   6.50
-SHA-224         HW   556 mB took 1.008 seconds,  551.353 mB/s Cycles per byte =   6.51
-SHA-224         HW 1103.945 mB/s
-SHA-256         SW   509 mB took 1.005 seconds,  506.179 mB/s Cycles per byte =   7.10
-SHA-256         SW   509 mB took 1.005 seconds,  506.104 mB/s Cycles per byte =   7.10
-SHA-256         SW 1012.283 mB/s
-SHA-256         HW   551 mB took 1.002 seconds,  549.657 mB/s Cycles per byte =   6.53
-SHA-256         HW   556 mB took 1.009 seconds,  550.857 mB/s Cycles per byte =   6.52
-SHA-256         HW 1100.514 mB/s
-SHA-384         SW   718 mB took 1.000 seconds,  718.078 mB/s Cycles per byte =   5.00
-SHA-384         SW   718 mB took 1.000 seconds,  717.943 mB/s Cycles per byte =   5.00
-SHA-384         SW 1436.021 mB/s
-SHA-384         HW   472 mB took 1.006 seconds,  469.019 mB/s Cycles per byte =   7.66
-SHA-384         HW   472 mB took 1.009 seconds,  467.867 mB/s Cycles per byte =   7.68
-SHA-384         HW  936.886 mB/s
-SHA-512         SW   708 mB took 1.004 seconds,  704.991 mB/s Cycles per byte =   5.09
-SHA-512         SW   708 mB took 1.004 seconds,  704.902 mB/s Cycles per byte =   5.10
-SHA-512         SW 1409.893 mB/s
-SHA-512         HW   467 mB took 1.005 seconds,  464.138 mB/s Cycles per byte =   7.74
-SHA-512         HW   467 mB took 1.010 seconds,  462.034 mB/s Cycles per byte =   7.77
-SHA-512         HW  926.172 mB/s
-SHA3-224        SW   346 mB took 1.013 seconds,  341.515 mB/s Cycles per byte =  10.52
-SHA3-224        SW   346 mB took 1.013 seconds,  341.478 mB/s Cycles per byte =  10.52
-SHA3-224        SW  682.993 mB/s
-SHA3-224        HW   346 mB took 1.007 seconds,  343.722 mB/s Cycles per byte =  10.45
-SHA3-224        HW   346 mB took 1.007 seconds,  343.717 mB/s Cycles per byte =  10.45
-SHA3-224        HW  687.440 mB/s
-SHA3-256        SW   325 mB took 1.001 seconds,  324.749 mB/s Cycles per byte =  11.06
-SHA3-256        SW   325 mB took 1.001 seconds,  324.728 mB/s Cycles per byte =  11.06
-SHA3-256        SW  649.477 mB/s
-SHA3-256        HW   325 mB took 1.000 seconds,  324.908 mB/s Cycles per byte =  11.05
-SHA3-256        HW   325 mB took 1.001 seconds,  324.794 mB/s Cycles per byte =  11.06
-SHA3-256        HW  649.703 mB/s
-SHA3-384        SW   252 mB took 1.008 seconds,  249.673 mB/s Cycles per byte =  14.39
-SHA3-384        SW   252 mB took 1.008 seconds,  249.612 mB/s Cycles per byte =  14.39
-SHA3-384        SW  499.285 mB/s
-SHA3-384        HW   252 mB took 1.008 seconds,  249.689 mB/s Cycles per byte =  14.38
-SHA3-384        HW   252 mB took 1.008 seconds,  249.622 mB/s Cycles per byte =  14.39
-SHA3-384        HW  499.311 mB/s
-SHA3-512        SW   178 mB took 1.027 seconds,  173.637 mB/s Cycles per byte =  20.69
-SHA3-512        SW   178 mB took 1.027 seconds,  173.605 mB/s Cycles per byte =  20.69
-SHA3-512        SW  347.242 mB/s
-SHA3-512        HW   178 mB took 1.027 seconds,  173.654 mB/s Cycles per byte =  20.68
-SHA3-512        HW   178 mB took 1.027 seconds,  173.616 mB/s Cycles per byte =  20.69
-SHA3-512        HW  347.270 mB/s
-HMAC-MD5        SW   734 mB took 1.004 seconds,  730.820 mB/s Cycles per byte =   4.91
-HMAC-MD5        SW   734 mB took 1.004 seconds,  730.723 mB/s Cycles per byte =   4.92
-HMAC-MD5        SW 1461.543 mB/s
-HMAC-MD5        HW   545 mB took 1.005 seconds,  542.673 mB/s Cycles per byte =   6.62
-HMAC-MD5        HW   551 mB took 1.009 seconds,  545.615 mB/s Cycles per byte =   6.58
-HMAC-MD5        HW 1088.288 mB/s
-HMAC-SHA        SW   587 mB took 1.001 seconds,  586.458 mB/s Cycles per byte =   6.12
-HMAC-SHA        SW   592 mB took 1.008 seconds,  587.690 mB/s Cycles per byte =   6.11
-HMAC-SHA        SW 1174.148 mB/s
-HMAC-SHA        HW   771 mB took 1.000 seconds,  770.390 mB/s Cycles per byte =   4.66
-HMAC-SHA        HW   771 mB took 1.003 seconds,  768.156 mB/s Cycles per byte =   4.68
-HMAC-SHA        HW 1538.546 mB/s
-HMAC-SHA224     SW   509 mB took 1.005 seconds,  506.078 mB/s Cycles per byte =   7.10
-HMAC-SHA224     SW   509 mB took 1.005 seconds,  505.987 mB/s Cycles per byte =   7.10
-HMAC-SHA224     SW 1012.065 mB/s
-HMAC-SHA224     HW   540 mB took 1.006 seconds,  536.766 mB/s Cycles per byte =   6.69
-HMAC-SHA224     HW   540 mB took 1.006 seconds,  536.657 mB/s Cycles per byte =   6.69
-HMAC-SHA224     HW 1073.423 mB/s
-HMAC-SHA256     SW   509 mB took 1.005 seconds,  506.018 mB/s Cycles per byte =   7.10
-HMAC-SHA256     SW   509 mB took 1.005 seconds,  505.941 mB/s Cycles per byte =   7.10
-HMAC-SHA256     SW 1011.959 mB/s
-HMAC-SHA256     HW   556 mB took 1.001 seconds,  555.394 mB/s Cycles per byte =   6.47
-HMAC-SHA256     HW   556 mB took 1.006 seconds,  552.374 mB/s Cycles per byte =   6.50
-HMAC-SHA256     HW 1107.768 mB/s
-HMAC-SHA384     SW   724 mB took 1.002 seconds,  722.207 mB/s Cycles per byte =   4.97
-HMAC-SHA384     SW   724 mB took 1.002 seconds,  722.067 mB/s Cycles per byte =   4.97
-HMAC-SHA384     SW 1444.274 mB/s
-HMAC-SHA384     HW   456 mB took 1.004 seconds,  454.236 mB/s Cycles per byte =   7.91
-HMAC-SHA384     HW   456 mB took 1.004 seconds,  454.161 mB/s Cycles per byte =   7.91
-HMAC-SHA384     HW  908.397 mB/s
-HMAC-SHA512     SW   718 mB took 1.001 seconds,  717.627 mB/s Cycles per byte =   5.00
-HMAC-SHA512     SW   718 mB took 1.001 seconds,  717.228 mB/s Cycles per byte =   5.01
-HMAC-SHA512     SW 1434.855 mB/s
-HMAC-SHA512     HW   472 mB took 1.004 seconds,  470.186 mB/s Cycles per byte =   7.64
-HMAC-SHA512     HW   472 mB took 1.009 seconds,  467.814 mB/s Cycles per byte =   7.68
-HMAC-SHA512     HW  938.000 mB/s
-RSA     1024 key gen   SW     40 ops took 1.463 sec, avg 36.573 ms, 27.342 ops/sec
-RSA     1024 key gen   SW     40 ops took 1.713 sec, avg 42.819 ms, 23.354 ops/sec
-RSA   1024 key gen   SW 50.696 ops/sec
-RSA     2048 key gen   SW     40 ops took 9.357 sec, avg 233.918 ms, 4.275 ops/sec
-RSA     2048 key gen   SW     40 ops took 9.423 sec, avg 235.584 ms, 4.245 ops/sec
-RSA   2048 key gen   SW 8.520 ops/sec
-RSA     1024 key gen   HW    160 ops took 1.138 sec, avg 7.111 ms, 140.622 ops/sec
-RSA     1024 key gen   HW    160 ops took 1.169 sec, avg 7.305 ms, 136.886 ops/sec
-RSA   1024 key gen   HW 277.508 ops/sec
-RSA     2048 key gen   HW     40 ops took 1.147 sec, avg 28.664 ms, 34.887 ops/sec
-RSA     2048 key gen   HW     40 ops took 1.172 sec, avg 29.306 ms, 34.122 ops/sec
-RSA   2048 key gen   HW 69.009 ops/sec
-RSA     2048 sign      SW   1200 ops took 1.023 sec, avg 0.852 ms, 1173.290 ops/sec
-RSA     2048 sign      SW   1200 ops took 1.023 sec, avg 0.852 ms, 1173.134 ops/sec
-RSA   2048 sign      SW 2346.424 ops/sec
-RSA     2048 verify    SW  38200 ops took 1.001 sec, avg 0.026 ms, 38143.126 ops/sec
-RSA     2048 verify    SW  38200 ops took 1.002 sec, avg 0.026 ms, 38142.136 ops/sec
-RSA   2048 verify    SW 76285.262 ops/sec
-RSA     2048 sign      HW  18400 ops took 1.002 sec, avg 0.054 ms, 18362.595 ops/sec
-RSA     2048 sign      HW  18400 ops took 1.004 sec, avg 0.055 ms, 18334.819 ops/sec
-RSA   2048 sign      HW 36697.413 ops/sec
-RSA     2048 verify    HW 214000 ops took 1.000 sec, avg 0.005 ms, 213995.102 ops/sec
-RSA     2048 verify    HW 214500 ops took 1.000 sec, avg 0.005 ms, 214458.584 ops/sec
-RSA   2048 verify    HW 428453.686 ops/sec
-DH      2048 key gen   SW   2320 ops took 1.008 sec, avg 0.435 ms, 2300.939 ops/sec
-DH      2048 key gen   SW   2320 ops took 1.008 sec, avg 0.435 ms, 2300.524 ops/sec
-DH    2048 key gen   SW 4601.463 ops/sec
-DH      2048 agree     SW   2300 ops took 1.028 sec, avg 0.447 ms, 2237.185 ops/sec
-DH      2048 agree     SW   2300 ops took 1.028 sec, avg 0.447 ms, 2236.690 ops/sec
-DH    2048 agree     SW 4473.875 ops/sec
-DH      2048 key gen   HW  40840 ops took 1.000 sec, avg 0.024 ms, 40825.341 ops/sec
-DH      2048 key gen   HW  40880 ops took 1.001 sec, avg 0.024 ms, 40853.409 ops/sec
-DH    2048 key gen   HW 81678.751 ops/sec
-DH      2048 agree     HW  42200 ops took 1.000 sec, avg 0.024 ms, 42197.133 ops/sec
-DH      2048 agree     HW  42200 ops took 1.001 sec, avg 0.024 ms, 42156.500 ops/sec
-DH    2048 agree     HW 84353.632 ops/sec
-ECC      256 key gen   SW  65040 ops took 1.000 sec, avg 0.015 ms, 65037.147 ops/sec
-ECC      256 key gen   SW  65160 ops took 1.000 sec, avg 0.015 ms, 65147.093 ops/sec
-ECC    256 key gen   SW 130184.240 ops/sec
-ECDHE    256 agree     SW  16900 ops took 1.005 sec, avg 0.059 ms, 16815.304 ops/sec
-ECDHE    256 agree     SW  16900 ops took 1.005 sec, avg 0.059 ms, 16810.016 ops/sec
-ECDHE  256 agree     SW 33625.321 ops/sec
-ECDSA    256 sign      SW  40600 ops took 1.001 sec, avg 0.025 ms, 40552.267 ops/sec
-ECDSA    256 sign      SW  40600 ops took 1.001 sec, avg 0.025 ms, 40550.085 ops/sec
-ECDSA  256 sign      SW 81102.352 ops/sec
-ECDSA    256 verify    SW  13100 ops took 1.001 sec, avg 0.076 ms, 13085.621 ops/sec
-ECDSA    256 verify    SW  13100 ops took 1.001 sec, avg 0.076 ms, 13085.306 ops/sec
-ECDSA  256 verify    SW 26170.926 ops/sec
-ECDHE    256 agree     HW  26600 ops took 1.000 sec, avg 0.038 ms, 26597.318 ops/sec
-ECDHE    256 agree     HW  26700 ops took 1.002 sec, avg 0.038 ms, 26656.256 ops/sec
-ECDHE  256 agree     HW 53253.574 ops/sec
-ECDSA    256 sign      HW  27700 ops took 1.001 sec, avg 0.036 ms, 27663.230 ops/sec
-ECDSA    256 sign      HW  27600 ops took 1.002 sec, avg 0.036 ms, 27545.458 ops/sec
-ECDSA  256 sign      HW 55208.689 ops/sec
-ECDSA    256 verify    HW  14500 ops took 1.000 sec, avg 0.069 ms, 14493.117 ops/sec
-ECDSA    256 verify    HW  14500 ops took 1.003 sec, avg 0.069 ms, 14450.334 ops/sec
-ECDSA  256 verify    HW 28943.450 ops/sec
+RNG             SW    79 mB took 1.030 seconds,   76.388 mB/s Cycles per byte =  32.65
+RNG             SW    79 mB took 1.042 seconds,   75.456 mB/s Cycles per byte =  33.05
+AES-128-CBC-enc SW   729 mB took 1.006 seconds,  724.266 mB/s Cycles per byte =   3.44
+AES-128-CBC-enc SW   729 mB took 1.007 seconds,  723.825 mB/s Cycles per byte =   3.45
+AES-128-CBC-dec SW  5185 mB took 1.000 seconds, 5184.260 mB/s Cycles per byte =   0.48
+AES-128-CBC-dec SW  5190 mB took 1.000 seconds, 5189.351 mB/s Cycles per byte =   0.48
+AES-192-CBC-enc SW   608 mB took 1.003 seconds,  606.175 mB/s Cycles per byte =   4.11
+AES-192-CBC-enc SW   608 mB took 1.004 seconds,  605.855 mB/s Cycles per byte =   4.12
+AES-192-CBC-dec SW  4325 mB took 1.000 seconds, 4325.333 mB/s Cycles per byte =   0.58
+AES-192-CBC-dec SW  4331 mB took 1.001 seconds, 4325.809 mB/s Cycles per byte =   0.58
+AES-256-CBC-enc SW   524 mB took 1.005 seconds,  521.465 mB/s Cycles per byte =   4.78
+AES-256-CBC-enc SW   524 mB took 1.006 seconds,  521.190 mB/s Cycles per byte =   4.79
+AES-256-CBC-dec SW  3707 mB took 1.000 seconds, 3705.767 mB/s Cycles per byte =   0.67
+AES-256-CBC-dec SW  3707 mB took 1.001 seconds, 3703.024 mB/s Cycles per byte =   0.67
+AES-128-CBC-enc HW  2443 mB took 1.000 seconds, 2442.819 mB/s Cycles per byte =   1.02
+AES-128-CBC-enc HW  2443 mB took 1.000 seconds, 2442.770 mB/s Cycles per byte =   1.02
+AES-128-CBC-dec HW  2380 mB took 1.001 seconds, 2378.716 mB/s Cycles per byte =   1.05
+AES-128-CBC-dec HW  2380 mB took 1.001 seconds, 2378.657 mB/s Cycles per byte =   1.05
+AES-192-CBC-enc HW  2365 mB took 1.002 seconds, 2359.520 mB/s Cycles per byte =   1.06
+AES-192-CBC-enc HW  2365 mB took 1.002 seconds, 2359.471 mB/s Cycles per byte =   1.06
+AES-192-CBC-dec HW  2417 mB took 1.002 seconds, 2411.874 mB/s Cycles per byte =   1.03
+AES-192-CBC-dec HW  2417 mB took 1.002 seconds, 2411.831 mB/s Cycles per byte =   1.03
+AES-256-CBC-enc HW  2223 mB took 1.001 seconds, 2221.082 mB/s Cycles per byte =   1.12
+AES-256-CBC-enc HW  2218 mB took 1.001 seconds, 2215.793 mB/s Cycles per byte =   1.13
+AES-256-CBC-dec HW  2113 mB took 1.002 seconds, 2108.506 mB/s Cycles per byte =   1.18
+AES-256-CBC-dec HW  2113 mB took 1.002 seconds, 2108.354 mB/s Cycles per byte =   1.18
+AES-128-GCM-enc SW  1919 mB took 1.001 seconds, 1916.366 mB/s Cycles per byte =   1.30
+AES-128-GCM-enc SW  2595 mB took 1.001 seconds, 2591.465 mB/s Cycles per byte =   0.96
+AES-128-GCM-dec SW  2611 mB took 1.000 seconds, 2610.093 mB/s Cycles per byte =   0.96
+AES-128-GCM-dec SW  2218 mB took 1.002 seconds, 2213.073 mB/s Cycles per byte =   1.13
+AES-192-GCM-enc SW  2317 mB took 1.001 seconds, 2315.896 mB/s Cycles per byte =   1.08
+AES-192-GCM-enc SW  2286 mB took 1.002 seconds, 2281.953 mB/s Cycles per byte =   1.09
+AES-192-GCM-dec SW  2207 mB took 1.001 seconds, 2206.098 mB/s Cycles per byte =   1.13
+AES-192-GCM-dec SW  1589 mB took 1.002 seconds, 1586.020 mB/s Cycles per byte =   1.57
+AES-256-GCM-enc SW  2071 mB took 1.001 seconds, 2069.342 mB/s Cycles per byte =   1.21
+AES-256-GCM-enc SW  2108 mB took 1.002 seconds, 2103.268 mB/s Cycles per byte =   1.19
+AES-256-GCM-dec SW  2108 mB took 1.001 seconds, 2105.715 mB/s Cycles per byte =   1.18
+AES-256-GCM-dec SW  2108 mB took 1.002 seconds, 2103.563 mB/s Cycles per byte =   1.19
+AES-128-GCM-enc HW  2427 mB took 1.002 seconds, 2422.522 mB/s Cycles per byte =   1.03
+AES-128-GCM-enc HW  2433 mB took 1.002 seconds, 2427.722 mB/s Cycles per byte =   1.03
+AES-128-GCM-dec HW  1861 mB took 1.001 seconds, 1860.039 mB/s Cycles per byte =   1.34
+AES-128-GCM-dec HW  1861 mB took 1.001 seconds, 1860.019 mB/s Cycles per byte =   1.34
+AES-192-GCM-enc HW  2380 mB took 1.000 seconds, 2379.218 mB/s Cycles per byte =   1.05
+AES-192-GCM-enc HW  2386 mB took 1.000 seconds, 2384.418 mB/s Cycles per byte =   1.05
+AES-192-GCM-dec HW  1971 mB took 1.002 seconds, 1966.480 mB/s Cycles per byte =   1.27
+AES-192-GCM-dec HW  1971 mB took 1.002 seconds, 1966.458 mB/s Cycles per byte =   1.27
+AES-256-GCM-enc HW  2254 mB took 1.002 seconds, 2249.535 mB/s Cycles per byte =   1.11
+AES-256-GCM-enc HW  2254 mB took 1.002 seconds, 2249.487 mB/s Cycles per byte =   1.11
+AES-256-GCM-dec HW  1746 mB took 1.001 seconds, 1744.049 mB/s Cycles per byte =   1.43
+AES-256-GCM-dec HW  1746 mB took 1.001 seconds, 1744.018 mB/s Cycles per byte =   1.43
+CHACHA          SW  1478 mB took 1.000 seconds, 1478.220 mB/s Cycles per byte =   1.69
+CHACHA          SW  1347 mB took 1.003 seconds, 1342.833 mB/s Cycles per byte =   1.86
+CHA-POLY        SW   949 mB took 1.002 seconds,  946.915 mB/s Cycles per byte =   2.63
+CHA-POLY        SW   949 mB took 1.005 seconds,  944.670 mB/s Cycles per byte =   2.64
+MD5             SW   603 mB took 1.003 seconds,  601.383 mB/s Cycles per byte =   4.15
+MD5             SW   613 mB took 1.005 seconds,  610.413 mB/s Cycles per byte =   4.09
+MD5             HW   409 mB took 1.002 seconds,  408.088 mB/s Cycles per byte =   6.11
+MD5             HW   409 mB took 1.003 seconds,  407.845 mB/s Cycles per byte =   6.12
+POLY1305        SW  2621 mB took 1.000 seconds, 2620.709 mB/s Cycles per byte =   0.95
+POLY1305        SW  2616 mB took 1.001 seconds, 2613.824 mB/s Cycles per byte =   0.95
+SHA             SW   377 mB took 1.003 seconds,  376.342 mB/s Cycles per byte =   6.63
+SHA             SW   383 mB took 1.011 seconds,  378.592 mB/s Cycles per byte =   6.59
+SHA             HW   535 mB took 1.005 seconds,  531.941 mB/s Cycles per byte =   4.69
+SHA             HW   535 mB took 1.006 seconds,  531.644 mB/s Cycles per byte =   4.69
+SHA-224         SW   351 mB took 1.010 seconds,  347.715 mB/s Cycles per byte =   7.17
+SHA-224         SW   351 mB took 1.014 seconds,  346.285 mB/s Cycles per byte =   7.20
+SHA-224         HW   414 mB took 1.012 seconds,  409.434 mB/s Cycles per byte =   6.09
+SHA-224         HW   419 mB took 1.012 seconds,  414.387 mB/s Cycles per byte =   6.02
+SHA-256         SW   351 mB took 1.011 seconds,  347.292 mB/s Cycles per byte =   7.18
+SHA-256         SW   315 mB took 1.013 seconds,  310.424 mB/s Cycles per byte =   8.03
+SHA-256         HW   419 mB took 1.004 seconds,  417.688 mB/s Cycles per byte =   5.97
+SHA-256         HW   419 mB took 1.005 seconds,  417.427 mB/s Cycles per byte =   5.98
+SHA-384         SW   530 mB took 1.001 seconds,  529.040 mB/s Cycles per byte =   4.71
+SHA-384         SW   530 mB took 1.003 seconds,  528.139 mB/s Cycles per byte =   4.72
+SHA-384         HW   357 mB took 1.001 seconds,  356.156 mB/s Cycles per byte =   7.00
+SHA-384         HW   367 mB took 1.010 seconds,  363.498 mB/s Cycles per byte =   6.86
+SHA-512         SW   530 mB took 1.002 seconds,  528.589 mB/s Cycles per byte =   4.72
+SHA-512         SW   446 mB took 1.009 seconds,  441.540 mB/s Cycles per byte =   5.65
+SHA-512         HW   367 mB took 1.004 seconds,  365.434 mB/s Cycles per byte =   6.83
+SHA-512         HW   367 mB took 1.005 seconds,  365.224 mB/s Cycles per byte =   6.83
+SHA3-224        SW   236 mB took 1.014 seconds,  232.784 mB/s Cycles per byte =  10.71
+SHA3-224        SW   236 mB took 1.018 seconds,  231.794 mB/s Cycles per byte =  10.76
+SHA3-224        HW   220 mB took 1.006 seconds,  218.860 mB/s Cycles per byte =  11.40
+SHA3-224        HW   236 mB took 1.015 seconds,  232.538 mB/s Cycles per byte =  10.73
+SHA3-256        SW   163 mB took 1.000 seconds,  162.463 mB/s Cycles per byte =  15.35
+SHA3-256        SW   225 mB took 1.023 seconds,  220.278 mB/s Cycles per byte =  11.32
+SHA3-256        HW   692 mB took 1.004 seconds,  689.291 mB/s Cycles per byte =   3.62
+SHA3-256        HW   692 mB took 1.007 seconds,  687.092 mB/s Cycles per byte =   3.63
+SHA3-384        SW   173 mB took 1.022 seconds,  169.214 mB/s Cycles per byte =  14.74
+SHA3-384        SW   173 mB took 1.024 seconds,  168.878 mB/s Cycles per byte =  14.77
+SHA3-384        HW   173 mB took 1.023 seconds,  169.202 mB/s Cycles per byte =  14.74
+SHA3-384        HW   173 mB took 1.024 seconds,  168.948 mB/s Cycles per byte =  14.76
+SHA3-512        SW   121 mB took 1.026 seconds,  117.548 mB/s Cycles per byte =  21.22
+SHA3-512        SW   121 mB took 1.027 seconds,  117.375 mB/s Cycles per byte =  21.25
+SHA3-512        HW   121 mB took 1.026 seconds,  117.585 mB/s Cycles per byte =  21.21
+SHA3-512        HW   121 mB took 1.028 seconds,  117.335 mB/s Cycles per byte =  21.26
+HMAC-MD5        SW   608 mB took 1.000 seconds,  608.096 mB/s Cycles per byte =   4.10
+HMAC-MD5        SW   613 mB took 1.004 seconds,  611.102 mB/s Cycles per byte =   4.08
+HMAC-MD5        HW   414 mB took 1.001 seconds,  413.762 mB/s Cycles per byte =   6.03
+HMAC-MD5        HW   414 mB took 1.004 seconds,  412.554 mB/s Cycles per byte =   6.05
+HMAC-SHA        SW   383 mB took 1.011 seconds,  378.446 mB/s Cycles per byte =   6.59
+HMAC-SHA        SW   383 mB took 1.013 seconds,  377.729 mB/s Cycles per byte =   6.60
+HMAC-SHA        HW   535 mB took 1.008 seconds,  530.760 mB/s Cycles per byte =   4.70
+HMAC-SHA        HW   514 mB took 1.009 seconds,  509.292 mB/s Cycles per byte =   4.90
+HMAC-SHA224     SW   267 mB took 1.008 seconds,  265.316 mB/s Cycles per byte =   9.40
+HMAC-SHA224     SW   351 mB took 1.012 seconds,  346.982 mB/s Cycles per byte =   7.19
+HMAC-SHA224     HW   404 mB took 1.003 seconds,  402.579 mB/s Cycles per byte =   6.20
+HMAC-SHA224     HW   393 mB took 1.011 seconds,  388.951 mB/s Cycles per byte =   6.41
+HMAC-SHA256     SW   294 mB took 1.007 seconds,  291.426 mB/s Cycles per byte =   8.56
+HMAC-SHA256     SW   351 mB took 1.012 seconds,  347.205 mB/s Cycles per byte =   7.18
+HMAC-SHA256     HW   419 mB took 1.004 seconds,  417.677 mB/s Cycles per byte =   5.97
+HMAC-SHA256     HW   419 mB took 1.009 seconds,  415.514 mB/s Cycles per byte =   6.00
+HMAC-SHA384     SW   530 mB took 1.002 seconds,  528.479 mB/s Cycles per byte =   4.72
+HMAC-SHA384     SW   530 mB took 1.007 seconds,  526.093 mB/s Cycles per byte =   4.74
+HMAC-SHA384     HW   367 mB took 1.004 seconds,  365.498 mB/s Cycles per byte =   6.82
+HMAC-SHA384     HW   367 mB took 1.006 seconds,  364.878 mB/s Cycles per byte =   6.84
+HMAC-SHA512     SW   530 mB took 1.002 seconds,  528.616 mB/s Cycles per byte =   4.72
+HMAC-SHA512     SW   530 mB took 1.006 seconds,  526.513 mB/s Cycles per byte =   4.74
+HMAC-SHA512     HW   367 mB took 1.003 seconds,  365.816 mB/s Cycles per byte =   6.82
+HMAC-SHA512     HW   367 mB took 1.007 seconds,  364.560 mB/s Cycles per byte =   6.84
+RSA     1024 key gen   SW     40 ops took 1.191 sec, avg 29.780 ms, 33.580 ops/sec
+RSA     1024 key gen   SW     40 ops took 1.428 sec, avg 35.694 ms, 28.016 ops/sec
+RSA     2048 key gen   SW     40 ops took 4.154 sec, avg 103.853 ms, 9.629 ops/sec
+RSA     2048 key gen   SW     40 ops took 5.687 sec, avg 142.172 ms, 7.034 ops/sec
+RSA     1024 key gen   HW    120 ops took 1.064 sec, avg 8.866 ms, 112.790 ops/sec
+RSA     1024 key gen   HW    120 ops took 1.072 sec, avg 8.932 ms, 111.953 ops/sec
+RSA     2048 key gen   HW     40 ops took 1.389 sec, avg 34.717 ms, 28.804 ops/sec
+RSA     2048 key gen   HW     40 ops took 1.437 sec, avg 35.935 ms, 27.828 ops/sec
+RSA     2048 sign      SW   1000 ops took 1.046 sec, avg 1.046 ms, 956.197 ops/sec
+RSA     2048 sign      SW   1000 ops took 1.052 sec, avg 1.052 ms, 950.320 ops/sec
+RSA     2048 verify    SW  32300 ops took 1.001 sec, avg 0.031 ms, 32271.670 ops/sec
+RSA     2048 verify    SW  32200 ops took 1.003 sec, avg 0.031 ms, 32117.110 ops/sec
+RSA     2048 sign      HW  12300 ops took 1.001 sec, avg 0.081 ms, 12288.056 ops/sec
+RSA     2048 sign      HW  19600 ops took 1.003 sec, avg 0.051 ms, 19537.967 ops/sec
+RSA     2048 verify    HW 116000 ops took 1.000 sec, avg 0.009 ms, 115971.935 ops/sec
+RSA     2048 verify    HW 118000 ops took 1.000 sec, avg 0.008 ms, 117962.707 ops/sec
+DH      2048 key gen   SW   2080 ops took 1.000 sec, avg 0.481 ms, 2079.830 ops/sec
+DH      2048 key gen   SW   2120 ops took 1.016 sec, avg 0.479 ms, 2086.548 ops/sec
+DH      2048 agree     SW   2100 ops took 1.023 sec, avg 0.487 ms, 2053.478 ops/sec
+DH      2048 agree     SW   2100 ops took 1.026 sec, avg 0.489 ms, 2046.644 ops/sec
+DH      2048 key gen   HW  43720 ops took 1.000 sec, avg 0.023 ms, 43712.257 ops/sec
+DH      2048 key gen   HW  43320 ops took 1.000 sec, avg 0.023 ms, 43299.560 ops/sec
+DH      2048 agree     HW  32500 ops took 1.001 sec, avg 0.031 ms, 32471.874 ops/sec
+DH      2048 agree     HW  39400 ops took 1.001 sec, avg 0.025 ms, 39351.757 ops/sec
+ECC      256 key gen   SW  41320 ops took 1.001 sec, avg 0.024 ms, 41298.692 ops/sec
+ECC      256 key gen   SW  41280 ops took 1.001 sec, avg 0.024 ms, 41258.674 ops/sec
+ECC      256 key gen   HW  41320 ops took 1.000 sec, avg 0.024 ms, 41309.127 ops/sec
+ECC      256 key gen   HW  41280 ops took 1.001 sec, avg 0.024 ms, 41244.118 ops/sec
+ECDHE    256 agree     SW  13400 ops took 1.005 sec, avg 0.075 ms, 13328.731 ops/sec
+ECDHE    256 agree     SW  13300 ops took 1.006 sec, avg 0.076 ms, 13221.465 ops/sec
+ECDSA    256 sign      SW  29900 ops took 1.002 sec, avg 0.034 ms, 29841.744 ops/sec
+ECDSA    256 sign      SW  30000 ops took 1.003 sec, avg 0.033 ms, 29910.091 ops/sec
+ECDSA    256 verify    SW  10700 ops took 1.006 sec, avg 0.094 ms, 10641.471 ops/sec
+ECDSA    256 verify    SW  10700 ops took 1.009 sec, avg 0.094 ms, 10604.105 ops/sec
+ECDHE    256 agree     HW  26600 ops took 1.000 sec, avg 0.038 ms, 26594.522 ops/sec
+ECDHE    256 agree     HW  19000 ops took 1.002 sec, avg 0.053 ms, 18964.479 ops/sec
+ECDSA    256 sign      HW  22300 ops took 1.001 sec, avg 0.045 ms, 22286.137 ops/sec
+ECDSA    256 sign      HW  22000 ops took 1.002 sec, avg 0.046 ms, 21963.146 ops/sec
+ECDSA    256 verify    HW  12600 ops took 1.002 sec, avg 0.080 ms, 12569.531 ops/sec
+ECDSA    256 verify    HW  12600 ops took 1.005 sec, avg 0.080 ms, 12542.829 ops/sec
 Benchmark complete
+RNG             SW  151.844 mB/s
+AES-128-CBC-enc SW 1448.090 mB/s
+AES-128-CBC-dec SW 10373.612 mB/s
+AES-192-CBC-enc SW 1212.030 mB/s
+AES-192-CBC-dec SW 8651.141 mB/s
+AES-256-CBC-enc SW 1042.655 mB/s
+AES-256-CBC-dec SW 7408.791 mB/s
+AES-128-CBC-enc HW 4885.588 mB/s
+AES-128-CBC-dec HW 4757.373 mB/s
+AES-192-CBC-enc HW 4718.991 mB/s
+AES-192-CBC-dec HW 4823.705 mB/s
+AES-256-CBC-enc HW 4436.875 mB/s
+AES-256-CBC-dec HW 4216.860 mB/s
+AES-128-GCM-enc SW 4507.831 mB/s
+AES-128-GCM-dec SW 4823.166 mB/s
+AES-192-GCM-enc SW 4597.849 mB/s
+AES-192-GCM-dec SW 3792.119 mB/s
+AES-256-GCM-enc SW 4172.610 mB/s
+AES-256-GCM-dec SW 4209.278 mB/s
+AES-128-GCM-enc HW 4850.244 mB/s
+AES-128-GCM-dec HW 3720.058 mB/s
+AES-192-GCM-enc HW 4763.636 mB/s
+AES-192-GCM-dec HW 3932.937 mB/s
+AES-256-GCM-enc HW 4499.022 mB/s
+AES-256-GCM-dec HW 3488.068 mB/s
+CHACHA          SW 2821.053 mB/s
+CHA-POLY        SW 1891.585 mB/s
+MD5             SW 1211.796 mB/s
+MD5             HW  815.933 mB/s
+POLY1305        SW 5234.533 mB/s
+SHA             SW  754.934 mB/s
+SHA             HW 1063.586 mB/s
+SHA-224         SW  694.001 mB/s
+SHA-224         HW  823.821 mB/s
+SHA-256         SW  657.716 mB/s
+SHA-256         HW  835.115 mB/s
+SHA-384         SW 1057.178 mB/s
+SHA-384         HW  719.655 mB/s
+SHA-512         SW  970.129 mB/s
+SHA-512         HW  730.657 mB/s
+SHA3-224        SW  464.579 mB/s
+SHA3-224        HW  451.398 mB/s
+SHA3-256        SW  382.741 mB/s
+SHA3-256        HW 1376.382 mB/s
+SHA3-384        SW  338.092 mB/s
+SHA3-384        HW  338.150 mB/s
+SHA3-512        SW  234.923 mB/s
+SHA3-512        HW  234.921 mB/s
+HMAC-MD5        SW 1219.198 mB/s
+HMAC-MD5        HW  826.316 mB/s
+HMAC-SHA        SW  756.175 mB/s
+HMAC-SHA        HW 1040.052 mB/s
+HMAC-SHA224     SW  612.297 mB/s
+HMAC-SHA224     HW  791.530 mB/s
+HMAC-SHA256     SW  638.631 mB/s
+HMAC-SHA256     HW  833.191 mB/s
+HMAC-SHA384     SW 1054.571 mB/s
+HMAC-SHA384     HW  730.376 mB/s
+HMAC-SHA512     SW 1055.130 mB/s
+HMAC-SHA512     HW  730.377 mB/s
+RSA   1024 key gen   SW 61.596 ops/sec
+RSA   2048 key gen   SW 16.663 ops/sec
+RSA   1024 key gen   HW 224.743 ops/sec
+RSA   2048 key gen   HW 56.632 ops/sec
+RSA   2048 sign      SW 1906.517 ops/sec
+RSA   2048 verify    SW 64388.780 ops/sec
+RSA   2048 sign      HW 31826.022 ops/sec
+RSA   2048 verify    HW 233934.642 ops/sec
+DH    2048 key gen   SW 4166.378 ops/sec
+DH    2048 agree     SW 4100.122 ops/sec
+DH    2048 key gen   HW 87011.816 ops/sec
+DH    2048 agree     HW 71823.630 ops/sec
+ECC    256 key gen   SW 82557.366 ops/sec
+ECC    256 key gen   HW 82553.245 ops/sec
+ECDHE  256 agree     SW 26550.196 ops/sec
+ECDSA  256 sign      SW 59751.835 ops/sec
+ECDSA  256 verify    SW 21245.576 ops/sec
+ECDHE  256 agree     HW 45559.001 ops/sec
+ECDSA  256 sign      HW 44249.283 ops/sec
+ECDSA  256 verify    HW 25112.360 ops/sec
 IntelQA: Stop
 ```
 
