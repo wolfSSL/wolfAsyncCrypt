@@ -11,12 +11,51 @@ Tested using `CNN55XX-Driver-Linux-KVM-XEN-PF-SDK-1.4.14.tar`
 
 ### Installation
 
+```sh
+$ cd CN55XX-SDK
+$ make clean
+$ make
+$ cd bin
+$ sudo perl ./init_nitrox.pl
+
+NITROX-V devices found: 1
+NITROX-V driver(nitrox_drv.ko) load: SUCCESS
+NITROX-V Device-0 part:  CNN5560-900BG676-C45-G
+
+Reading config file: ../microcode/ssl.conf
+Device count: 1  Config file device count: 2
+
+ NITROX Model: 0x1200 [ CNN55XX PASS 1.0 ]
+
+ Microcode Details:
+	Version : CNN5x-MC-AE-MAIN-0001
+	Core Count : 80
+	Code length : 9514
+	Block number: 0
+
+ Microcode Details:
+	Version : CNN5x-MC-SE-SSL-0004
+	Core Count : 64
+	Code length : 23738
+	Block number: 1
+
+ Microcode Load Succeed on device: 0
+
+ [ AE ] Microcode: CNN5x-MC-AE-MAIN-0001
+	Group : 0
+	Core Mask [Hi Low]: ffff ffffffffffffffff [ 80 ]
+
+ [ SE ] Microcode: CNN5x-MC-SE-SSL-0004
+	Group : 0
+	Core Mask : ffffffffffffffff [ 64 ]
+
+Microcode Load success
 ```
-cd CN55XX-SDK
-make clean
-make
-cd bin
-sudo perl ./init_nitrox.pl 
+
+```sh
+$ lspci | grep Cavium
+09:00.0 Network and computing encryption device: Cavium, Inc. Nitrox XL NPX (rev 01)
+81:00.0 Network and computing encryption device: Cavium, Inc. Device 0012
 ```
 
 #### Issues
@@ -25,7 +64,7 @@ sudo perl ./init_nitrox.pl
 
 a. Modify `include/vf_defs.h:120` -> `vf_config_mode_str()` function to:
 
-```
+```c
 static inline const char *vf_config_mode_str(vf_config_type_t vf_mode)
 {
 	const char *vf_mode_str;
@@ -38,14 +77,14 @@ c. In `include/linux/sysdep.h:46` rename `__BYTED_ORDER` to `__BYTE_ORDER`.
 
 2. If the CNN55XX driver is not extracted on the Linux box it can cause issues with the symbolic links in the microcode folder. Fix was to resolve the symbolic links in `./microcode`.
 
-```
+```sh
 NITROX Model: 0x1200 [ CNN55XX PASS 1.0 ]
 Invalid microcode
 ucode_dload: failed to initialize
 ```
 
 Resolve Links:
-```
+```sh
 cd microcode
 rm main_asym.out
 ln -s ./build/main_ae.out ./main_asym.out
@@ -58,7 +97,7 @@ ls -s ./build/main_ssl.out ./main_ssl.out
 
 ## Building wolfSSL
 
-```
+```sh
 ./configure --with-cavium-v=../CNN55XX-SDK --enable-asynccrypt --enable-aesni --enable-intelasm
 make
 sudo make install
@@ -82,7 +121,7 @@ Include the libnitrox static library:
 `LDFLAGS+= ../CNN55XX-SDK/lib/libnitrox.a`
 
 
-### Issues
+### wolfSSL Build Issues
 
 a. If building with debug `-g` and using an older binutils LD version 2.23 or less you may see a linker crash. Example of error: `BFD (GNU Binutils) 2.23.2 internal error, aborting at merge.c line 873 in _bfd_merged_section_offset`. Resolution is to use this in the CFLAGS `-g -fno-merge-debug-strings -fdebug-types-section`.
 
@@ -97,9 +136,9 @@ sudo ./wolfcrypt/test/testwolfcrypt
 ```
 
 
-## TLS Code Tempalte
+## TLS Code Template
 
-```
+```c
 /* GLOBAL DEVICE IDENTIFIER */
 #ifdef WOLFSSL_ASYNC_CRYPT
 	static int devId = INVALID_DEVID;
@@ -114,7 +153,6 @@ sudo ./wolfcrypt/test/testwolfcrypt
 
     wolfSSL_CTX_UseAsync(ctx, devId);
 #endif
-
 
 /* DONE IN YOUR WORKER LOOP IN WC_PENDING_E CASES AGAINST YOUR WOLFSSL_CTX */
 #ifdef WOLFSSL_ASYNC_CRYPT
@@ -135,7 +173,6 @@ sudo ./wolfcrypt/test/testwolfcrypt
 	}
 #endif
 
-
 /* DONE AT CLEANUP */
 #ifdef WOLFSSL_ASYNC_CRYPT
     wolfAsync_DevClose(&devId);
@@ -150,7 +187,7 @@ CentOS: Kernel 3.10.0-514.16.1.el7.x86_64
 Single Thread
 
 ```
-./configure --with-cavium-v=../CNN55XX-SDK --enable-asynccrypt --enable-aesni --enable-intelasm CFLAGS="-DWC_NO_ASYNC_THREADING" && make
+./configure --with-cavium-v=../CNN55XX-SDK --enable-asynccrypt --enable-aesni --enable-intelasm --enable-sp --enable-sp-asm CFLAGS="-DWC_NO_ASYNC_THREADING" && make
 
 sudo ./wolfcrypt/benchmark/benchmark
 

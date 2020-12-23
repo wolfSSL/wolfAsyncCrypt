@@ -248,7 +248,7 @@ struct WC_ASYNC_DEV;
     #endif
 #endif /* WC_ASYNC_THRESH_NONE */
 
-/* Overrides to allow disabling async support per alorithm */
+/* Overrides to allow disabling async support per algorithm */
 #ifndef WC_ASYNC_NO_CRYPT
     #ifndef WC_ASYNC_NO_ARC4
         #define WC_ASYNC_ENABLE_ARC4
