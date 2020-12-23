@@ -217,7 +217,7 @@ wolfAsync_DevClose(&devId);
 
 ## Build Options
 
-1. Async multi-threading can be disabled by defining `WC_NO_ASYNC_THREADING`.
+1. Async multi-threading can be disabled by defining `WC_NO_ASYNC_THREADING`. This only disables internal async threading functions. You are free to use other threading APIs or paradigms in your application.
 2. Software benchmarks can be disabled by defining `NO_SW_BENCH`.
 3. The `WC_ASYNC_THRESH_NONE` define can be used to disable the cipher thresholds, which are tunable values to determine at what size hardware should be used vs. software.
 4. Use `WOLFSSL_DEBUG_MEMORY` and `WOLFSSL_TRACK_MEMORY` to help debug memory issues. QAT also supports `WOLFSSL_DEBUG_MEMORY_PRINT`.
