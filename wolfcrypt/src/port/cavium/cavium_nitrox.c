@@ -861,7 +861,7 @@ int NitroxAesGcmDecrypt(Aes* aes,
 #endif /* !NO_AES */
 
 
-#if !defined(NO_ARC4) && !defined(HAVE_CAVIUM_V)
+#if !defined(NO_RC4) && !defined(HAVE_CAVIUM_V)
 int NitroxArc4SetKey(Arc4* arc4, const byte* key, word32 length)
 {
     if (CspInitializeRc4(CAVIUM_BLOCKING, arc4->asyncDev.nitrox.contextHandle,
@@ -907,7 +907,7 @@ int NitroxArc4Process(Arc4* arc4, byte* out, const byte* in, word32 length)
 
     return ret;
 }
-#endif /* !NO_ARC4 && !HAVE_CAVIUM_V */
+#endif /* !NO_RC4 && !HAVE_CAVIUM_V */
 
 
 #ifndef NO_DES3
