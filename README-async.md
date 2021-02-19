@@ -284,6 +284,15 @@ wolfSSL Server Benchmark 16384 bytes
 
 ## Change Log
 
+### wolfSSL Async Release v4.7.0 (02/20/2021)
+
+* Fix for ARC4 macro typo
+
+### wolfSSL Async Release v4.6.0 (12/21/2020)
+
+* Documentation updates.
+* Fixes for Cavium Nitrox and Intel Quick Assist (wolfSSL/wolfssl#3577) with TLS v1.3
+
 ### wolfSSL Async Release v4.4.0 (04/24/2020)
 
 * Fix for uninitialized `supSha3` warning.
