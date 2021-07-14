@@ -32,10 +32,9 @@ OR
 ```sh
 mkdir QAT1.7
 cd QAT1.7
-curl -o qat1.7.l.4.11.0-00001.tar.gz https://01.org/sites/default/files/downloads/qat1.7.l.4.11.0-00001.tar.gz
-tar -xvzf qat1.7.l.4.11.0-00001.tar.gz
+curl -o QAT1.7.L.4.14.0-00031.tar.gz https://downloadmirror.intel.com/30178/eng/QAT1.7.L.4.14.0-00031.tar.gz
+tar -xvzf QAT1.7.L.4.14.0-00031.tar.gz
 ./configure
-make
 sudo make install
 ...
 There is 3 QAT acceleration device(s) in the system:

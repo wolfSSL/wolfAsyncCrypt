@@ -284,6 +284,12 @@ wolfSSL Server Benchmark 16384 bytes
 
 ## Change Log
 
+### wolfSSL Async Release v4.8.0 (07/14/2021)
+
+* Fix for new QAT 1.7 hash types warning.
+* Updated Intel QAT 1.7 build instructions.
+* Includes possible HAVE_WOLF_BIGINT leaks in PR https://github.com/wolfSSL/wolfssl/pull/4208
+
 ### wolfSSL Async Release v4.7.0 (02/20/2021)
 
 * Fix for ARC4 macro typo
