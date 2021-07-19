@@ -18,6 +18,9 @@ https://01.org/intel-quick-assist-technology/downloads
 
 ### QAT 1.7
 
+This page will always have the latest QAT 1.7 Linux release:
+https://downloadcenter.intel.com/download/30178
+
 Note: If you have the older driver installed you may need to remove it or unload the module and reboot.
 
 1. Setup `QAT1.7` and `wolfssl` next to each other in the same folder.
