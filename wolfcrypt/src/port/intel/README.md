@@ -16,7 +16,13 @@ The asynchronous crypto files are located at `wolfcrypt/src/async.c` and `wolfss
 QuickAssist drivers can be downloaded from Intel here:
 https://01.org/intel-quick-assist-technology/downloads
 
+The latest driver for QAT can be found here:
+https://www.intel.com/content/www/us/en/download/19734
+
 ### QAT 1.7
+
+The latest QAT 1.7 Linux release:
+https://downloadcenter.intel.com/download/30178
 
 Note: If you have the older driver installed you may need to remove it or unload the module and reboot.
 
