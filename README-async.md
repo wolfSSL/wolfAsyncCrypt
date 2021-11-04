@@ -284,6 +284,10 @@ wolfSSL Server Benchmark 16384 bytes
 
 ## Change Log
 
+### wolfSSL Async Release v5.0.0 (11/01/2021)
+
+* Fix for issue with QAT AES GCM input buffer already NUMA and not aligned.
+
 ### wolfSSL Async Release v4.8.0 (07/14/2021)
 
 * Fix for new QAT 1.7 hash types warning.
