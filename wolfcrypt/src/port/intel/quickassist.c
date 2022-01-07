@@ -2579,6 +2579,7 @@ static int IntelQaSymHashGetInfo(CpaCySymHashAlgorithm hashAlgorithm,
         case CPA_CY_SYM_HASH_AES_CBC_MAC:
     #ifdef QAT_V2
         case CPA_CY_SYM_HASH_ZUC_EIA3:
+    #ifdef QAT_V2_4_PLUS
         case CPA_CY_SYM_HASH_SHA3_224:
         case CPA_CY_SYM_HASH_SHA3_384:
         case CPA_CY_SYM_HASH_SHA3_512:
@@ -2586,7 +2587,8 @@ static int IntelQaSymHashGetInfo(CpaCySymHashAlgorithm hashAlgorithm,
         case CPA_CY_SYM_HASH_SHAKE_256:
         case CPA_CY_SYM_HASH_POLY:
         case CPA_CY_SYM_HASH_SM3:
-    #endif
+    #endif /* QAT_V2_4_PLUS */
+    #endif /* QAT_V2 */
         default:
             return -1;
     }
