@@ -54,6 +54,13 @@
 /* Detect QAT driver version */
 #if defined(CPA_CY_API_VERSION_NUM_MAJOR) && CPA_CY_API_VERSION_NUM_MAJOR > 1
     #define QAT_V2
+    #if CPA_CY_API_VERSION_NUM_MAJOR > 2 || ( \
+            CPA_CY_API_VERSION_NUM_MAJOR == 2 && ( \
+                defined(CPA_CY_API_VERSION_NUM_MINOR) && CPA_CY_API_VERSION_NUM_MINOR >= 4 \
+            ) \
+        )
+        #define QAT_V2_4_PLUS
+    #endif
 #endif
 
 #ifdef QAT_V2
