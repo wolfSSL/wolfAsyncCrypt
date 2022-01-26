@@ -486,7 +486,7 @@ static int wolfAsync_NitroxCheckReq(WC_ASYNC_DEV* asyncDev, WOLF_EVENT* event)
     if (event->ret == WC_PENDING_E)
         event->pendCount++;
     else
-        printf("NitroxCheckRequest: ret %x, req %lx, count %d\n",
+        printf("NitroxCheckRequest: ret %x, req %lx, count %u\n",
             ret,
             event->reqId,
             event->pendCount);
@@ -574,7 +574,7 @@ static int wolfAsync_NitroxCheckMultiReqBuf(WC_ASYNC_DEV* asyncDev,
                         if (event->ret == WC_PENDING_E)
                             event->pendCount++;
                         else
-                            printf("NitroxCheckRequests: ret %x, req %lx, count %d\n",
+                            printf("NitroxCheckRequests: ret %x, req %lx, count %u\n",
                                 multi_req->req[i].status,
                                 multi_req->req[i].request_id,
                                 event->pendCount);
@@ -686,9 +686,6 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
                     /* If not pending then mark as done */
                     if (event->ret != WC_PENDING_E) {
                         event->state = WOLF_EVENT_STATE_DONE;
-                    #if defined(HAVE_CAVIUM)
-                        event->reqId = 0;
-                    #endif
                     }
             #endif
                 }
