@@ -836,6 +836,7 @@ int wc_AsyncWait(int ret, WC_ASYNC_DEV* asyncDev, word32 event_flags)
     return ret;
 }
 
+#ifndef WC_NO_ASYNC_SLEEP
 int wc_AsyncSleep(word32 ms)
 {
     int ret = 0;
@@ -854,7 +855,7 @@ int wc_AsyncSleep(word32 ms)
 
    return ret;
 }
-
+#endif
 
 /* Pthread Helpers */
 #ifndef WC_NO_ASYNC_THREADING
