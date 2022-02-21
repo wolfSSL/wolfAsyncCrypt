@@ -27,6 +27,7 @@
 
 #ifdef WOLFSSL_ASYNC_CRYPT
 
+#include <wolfssl/wolfcrypt/types.h>
 #include <wolfssl/wolfcrypt/wolfevent.h>
 #ifdef HAVE_CAVIUM
     #include <wolfssl/wolfcrypt/port/cavium/cavium_nitrox.h>
@@ -178,9 +179,16 @@ struct WC_ASYNC_DEV;
     };
 #endif /* !NO_DES3 */
 
+    #ifdef __CC_ARM
+        #pragma push
+        #pragma anon_unions
+    #endif
+
     typedef struct WC_ASYNC_TEST {
         void* ctx;
+    #if HAVE_ANONYMOUS_INLINE_AGGREGATES
         union {
+    #endif
     #ifdef HAVE_ECC
             struct AsyncCryptTestEccMake eccMake;
             struct AsyncCryptTestEccSign eccSign;
@@ -203,9 +211,16 @@ struct WC_ASYNC_DEV;
     #ifndef NO_DES3
         struct AsyncCryptTestDes des;
     #endif /* !NO_DES3 */
+    #if HAVE_ANONYMOUS_INLINE_AGGREGATES
         }; /* union */
+    #endif
         byte type; /* enum WC_ASYNC_TEST_TYPE */
     } WC_ASYNC_TEST;
+
+    #ifdef __CC_ARM
+        #pragma pop
+    #endif
+
 #endif /* WOLFSSL_ASYNC_CRYPT_TEST */
 
 /* Performance tuning options */
