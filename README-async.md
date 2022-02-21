@@ -284,6 +284,15 @@ wolfSSL Server Benchmark 16384 bytes
 
 ## Change Log
 
+### wolfSSL Async Release 5.2.0 (Feb 21, 2022)
+
+* Adds `WC_NO_ASYNC_SLEEP` option to hide wc_AsyncSleep for platforms that do not need it.
+* Fix for async test anonymous union on some platforms (`#pragma anon_unions` and `HAVE_ANONYMOUS_INLINE_AGGREGATES`)
+* Fixes for invalidPrintfArgType_sint (cppcheck) and readability-redundant-preprocessor (clang-tidy).
+
+### wolfSSL Async Release v5.1.0 (Jan 3rd, 2022)
+
+
 ### wolfSSL Async Release v5.0.0 (11/01/2021)
 
 * Fix for issue with QAT AES GCM input buffer already NUMA and not aligned.
