@@ -86,6 +86,9 @@
 #ifndef QAT_ECDHE_ASYNC
 #define QAT_ECDHE_ASYNC      1
 #endif
+#ifndef QAT_ECMUL_ASYNC
+#define QAT_ECMUL_ASYNC      1
+#endif
 #ifndef QAT_DH_ASYNC
 #define QAT_DH_ASYNC         1
 #endif
@@ -3385,6 +3388,181 @@ int IntelQaSymSha3(WC_ASYNC_DEV* dev, byte* out, const byte* in, word32 sz)
 #ifdef HAVE_ECC
 
 #ifdef HAVE_ECC_DHE
+
+/* ECC Point Multiple Used for Public Key computation Key Gen */
+static void IntelQaEccPointMulFree(WC_ASYNC_DEV* dev)
+{
+    CpaCyEcPointMultiplyOpData* opData = &dev->qat.op.ecc_mul.opData;
+    CpaFlatBuffer* pXk = &dev->qat.op.ecc_mul.pXk;
+    CpaFlatBuffer* pYk = &dev->qat.op.ecc_mul.pYk;
+
+    if (pXk) {
+        if (pXk->pData != NULL) {
+            XFREE(pXk->pData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+        }
+        XMEMSET(pXk, 0, sizeof(CpaFlatBuffer));
+    }
+    if (pYk) {
+        if (pYk->pData != NULL) {
+            XFREE(pYk->pData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+        }
+        XMEMSET(pYk, 0, sizeof(CpaFlatBuffer));
+    }
+
+    if (opData) {
+        if (opData->h.pData) {
+            if (opData->h.pData != g_qatEcdhCofactor1) {
+                XFREE(opData->h.pData, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
+            }
+            opData->h.pData = NULL;
+        }
+        XMEMSET(opData, 0, sizeof(CpaCyEcPointMultiplyOpData));
+    }
+
+    /* clear temp pointers */
+    dev->qat.op.ecc_mul.pubX = NULL;
+    dev->qat.op.ecc_mul.pubY = NULL;
+    dev->qat.op.ecc_mul.pubZ = NULL;
+}
+
+static void IntelQaEccPointMulCallback(void *pCallbackTag, CpaStatus status,
+    void* pOpData, CpaBoolean multiplyStatus, CpaFlatBuffer* pXk,
+    CpaFlatBuffer* pYk)
+{
+    WC_ASYNC_DEV* dev = (WC_ASYNC_DEV*)pCallbackTag;
+    CpaCyEcPointMultiplyOpData* opData = (CpaCyEcPointMultiplyOpData*)pOpData;
+    int ret = ASYNC_OP_E;
+
+#ifdef QAT_DEBUG
+    printf("IntelQaEccPointMulCallback: dev %p, status %d, multiplyStatus %d, xLen %d, yLen %d\n",
+        dev, status, multiplyStatus, pXk->dataLenInBytes, pYk->dataLenInBytes);
+#endif
+
+    if (status == CPA_STATUS_SUCCESS) {
+        /* check multiply status */
+        if (multiplyStatus == 0) {
+            /* fail */
+            WOLFSSL_MSG("IntelQaEccPointMulCallback: multiply failed");
+            ret = ECC_CURVE_OID_E;
+        }
+        else {
+            ret = mp_read_unsigned_bin(dev->qat.op.ecc_mul.pubX,
+                pXk->pData, pXk->dataLenInBytes);
+            if (ret == 0)
+                ret = mp_read_unsigned_bin(dev->qat.op.ecc_mul.pubY,
+                    pYk->pData, pYk->dataLenInBytes);
+            if (ret == 0)
+                ret = mp_set(dev->qat.op.ecc_mul.pubZ, 1); /* always 1 */
+        }
+    }
+    (void)opData;
+
+    /* set return code to mark complete */
+    dev->qat.ret = ret;
+}
+
+int IntelQaEccPointMul(WC_ASYNC_DEV* dev, WC_BIGINT* k,
+    MATH_INT_T* pubX, MATH_INT_T* pubY, MATH_INT_T* pubZ,
+    WC_BIGINT* xG, WC_BIGINT* yG, WC_BIGINT* a, WC_BIGINT* b, WC_BIGINT* q,
+    word32 cofactor)
+{
+    int ret, retryCount = 0;
+    CpaStatus status = CPA_STATUS_SUCCESS;
+    CpaCyEcPointMultiplyOpData* opData = NULL;
+    CpaFlatBuffer* pXk = NULL;
+    CpaFlatBuffer* pYk = NULL;
+    CpaCyEcPointMultiplyCbFunc callback = IntelQaEccPointMulCallback;
+    CpaBoolean* multiplyStatus;
+
+    /* check arguments */
+    if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+#ifdef QAT_DEBUG
+    printf("IntelQaEccPointMul dev %p\n", dev);
+#endif
+
+    /* setup operation */
+    opData = &dev->qat.op.ecc_mul.opData;
+    pXk = &dev->qat.op.ecc_mul.pXk;
+    pYk = &dev->qat.op.ecc_mul.pYk;
+    multiplyStatus = &dev->qat.op.ecc_mul.multiplyStatus;
+
+    /* init buffers */
+    XMEMSET(opData, 0, sizeof(CpaCyEcPointMultiplyOpData));
+    XMEMSET(pXk, 0, sizeof(CpaFlatBuffer));
+    XMEMSET(pYk, 0, sizeof(CpaFlatBuffer));
+    XMEMSET(multiplyStatus, 0, sizeof(CpaBoolean));
+
+    /* setup operation data */
+    opData->fieldType = CPA_CY_EC_FIELD_TYPE_PRIME;
+    ret = IntelQaBigIntToFlatBuffer(k, &opData->k);
+    ret += IntelQaBigIntToFlatBuffer(xG, &opData->xg);
+    ret += IntelQaBigIntToFlatBuffer(yG, &opData->yg);
+    ret += IntelQaBigIntToFlatBuffer(a, &opData->a);
+    ret += IntelQaBigIntToFlatBuffer(b, &opData->b);
+    ret += IntelQaBigIntToFlatBuffer(q, &opData->q);
+    if (ret != 0) {
+        ret = BAD_FUNC_ARG; goto exit;
+    }
+
+    /* setup cofactor */
+    /* if using default value 1 then use shared global */
+    opData->h.dataLenInBytes = 4;
+    if (cofactor == 1) {
+        opData->h.pData = g_qatEcdhCofactor1;
+    }
+    else {
+        /* if not default value 1, then use own buffer */
+        opData->h.pData = XMALLOC(opData->h.dataLenInBytes, dev->heap,
+            DYNAMIC_TYPE_ASYNC_NUMA);
+        if (opData->h.pData == NULL) {
+            ret = MEMORY_E; goto exit;
+        }
+        *((word32*)opData->h.pData) = OS_HOST_TO_NW_32(cofactor);
+    }
+
+    ret =  IntelQaAllocFlatBuffer(pXk, q->len, dev->heap);
+    ret += IntelQaAllocFlatBuffer(pYk, q->len, dev->heap);
+    if (ret != 0) {
+        ret = MEMORY_E; goto exit;
+    }
+
+    /* store info needed for output */
+    dev->qat.op.ecc_mul.pubX = pubX;
+    dev->qat.op.ecc_mul.pubY = pubY;
+    dev->qat.op.ecc_mul.pubZ = pubZ;
+    IntelQaOpInit(dev, IntelQaEccPointMulFree);
+
+    /* perform point multiply */
+    do {
+        status = cpaCyEcPointMultiply(dev->qat.handle,
+            callback,
+            dev,
+            opData,
+            multiplyStatus,
+            pXk,
+            pYk);
+    } while (IntelQaHandleCpaStatus(dev, status, &ret, QAT_ECMUL_ASYNC, callback,
+        &retryCount));
+
+    if (ret == WC_PENDING_E)
+        return ret;
+
+exit:
+
+    if (ret != 0) {
+        printf("cpaCyEcPointMultiply failed! dev %p, status %d, ret %d\n",
+            dev, status, ret);
+    }
+
+    /* handle cleanup */
+    IntelQaEccPointMulFree(dev);
+
+    return ret;
+}
+
 static void IntelQaEcdhFree(WC_ASYNC_DEV* dev)
 {
     CpaCyEcdhPointMultiplyOpData* opData = &dev->qat.op.ecc_ecdh.opData;
@@ -3476,7 +3654,7 @@ int IntelQaEcdh(WC_ASYNC_DEV* dev, WC_BIGINT* k, WC_BIGINT* xG,
     CpaFlatBuffer* pXk = NULL;
     CpaFlatBuffer* pYk = NULL;
     CpaCyEcdhPointMultiplyCbFunc callback = IntelQaEcdhCallback;
-    CpaBoolean multiplyStatus;
+    CpaBoolean* multiplyStatus;
 
     /* check arguments */
     if (dev == NULL) {
@@ -3491,11 +3669,13 @@ int IntelQaEcdh(WC_ASYNC_DEV* dev, WC_BIGINT* k, WC_BIGINT* xG,
     opData = &dev->qat.op.ecc_ecdh.opData;
     pXk = &dev->qat.op.ecc_ecdh.pXk;
     pYk = &dev->qat.op.ecc_ecdh.pYk;
+    multiplyStatus = &dev->qat.op.ecc_ecdh.multiplyStatus;
 
     /* init buffers */
     XMEMSET(opData, 0, sizeof(CpaCyEcdhPointMultiplyOpData));
     XMEMSET(pXk, 0, sizeof(CpaFlatBuffer));
     XMEMSET(pYk, 0, sizeof(CpaFlatBuffer));
+    XMEMSET(multiplyStatus, 0, sizeof(CpaBoolean));
 
     /* setup operation data */
     opData->fieldType = CPA_CY_EC_FIELD_TYPE_PRIME;
@@ -3525,10 +3705,10 @@ int IntelQaEcdh(WC_ASYNC_DEV* dev, WC_BIGINT* k, WC_BIGINT* xG,
         *((word32*)opData->h.pData) = OS_HOST_TO_NW_32(cofactor);
     }
 
-    pXk->dataLenInBytes = a->len; /* bytes key size / 8 (aligned) */
+    pXk->dataLenInBytes = q->len; /* bytes key size / 8 (aligned) */
     pXk->pData = XREALLOC(out, pXk->dataLenInBytes, dev->heap,
         DYNAMIC_TYPE_ASYNC_NUMA);
-    pYk->dataLenInBytes = a->len;
+    pYk->dataLenInBytes = q->len;
     pYk->pData = g_qatEcdhY;
 
     /* store info needed for output */
@@ -3542,7 +3722,7 @@ int IntelQaEcdh(WC_ASYNC_DEV* dev, WC_BIGINT* k, WC_BIGINT* xG,
             callback,
             dev,
             opData,
-            &multiplyStatus,
+            multiplyStatus,
             pXk,
             pYk);
     } while (IntelQaHandleCpaStatus(dev, status, &ret, QAT_ECDHE_ASYNC, callback,
@@ -3645,7 +3825,7 @@ int IntelQaEcdsaSign(WC_ASYNC_DEV* dev,
     CpaStatus status = CPA_STATUS_SUCCESS;
     CpaCyEcdsaSignRSOpData* opData = NULL;
     CpaCyEcdsaSignRSCbFunc callback = IntelQaEcdsaSignCallback;
-    CpaBoolean signStatus;
+    CpaBoolean* signStatus;
     CpaFlatBuffer* pR = NULL;
     CpaFlatBuffer* pS = NULL;
 
@@ -3661,11 +3841,13 @@ int IntelQaEcdsaSign(WC_ASYNC_DEV* dev,
     opData = &dev->qat.op.ecc_sign.opData;
     pR = &dev->qat.op.ecc_sign.R;
     pS = &dev->qat.op.ecc_sign.S;
+    signStatus = &dev->qat.op.ecc_sign.signStatus;
 
     /* init buffers */
     XMEMSET(opData, 0, sizeof(CpaCyEcdsaSignRSOpData));
     XMEMSET(pR, 0, sizeof(CpaFlatBuffer));
     XMEMSET(pS, 0, sizeof(CpaFlatBuffer));
+    XMEMSET(signStatus, 0, sizeof(CpaBoolean));
 
     /* setup operation data */
     opData->fieldType = CPA_CY_EC_FIELD_TYPE_PRIME;
@@ -3702,7 +3884,7 @@ int IntelQaEcdsaSign(WC_ASYNC_DEV* dev,
             callback,
             dev,
             opData,
-            &signStatus,
+            signStatus,
             pR,
             pS);
     } while (IntelQaHandleCpaStatus(dev, status, &ret, QAT_ECDSA_ASYNC, callback,
@@ -3783,7 +3965,7 @@ int IntelQaEcdsaVerify(WC_ASYNC_DEV* dev, WC_BIGINT* m,
     CpaStatus status = CPA_STATUS_SUCCESS;
     CpaCyEcdsaVerifyOpData* opData = NULL;
     CpaCyEcdsaVerifyCbFunc callback = IntelQaEcdsaVerifyCallback;
-    CpaBoolean verifyStatus;
+    CpaBoolean* verifyStatus;
 
     if (dev == NULL) {
         return BAD_FUNC_ARG;
@@ -3795,21 +3977,23 @@ int IntelQaEcdsaVerify(WC_ASYNC_DEV* dev, WC_BIGINT* m,
 
     /* setup operation */
     opData = &dev->qat.op.ecc_verify.opData;
+    verifyStatus = &dev->qat.op.ecc_verify.verifyStatus;
 
     /* init buffers */
     XMEMSET(opData, 0, sizeof(CpaCyEcdsaVerifyOpData));
+    XMEMSET(verifyStatus, 0, sizeof(CpaBoolean));
 
     /* setup operation data */
     opData->fieldType = CPA_CY_EC_FIELD_TYPE_PRIME;
-    ret =  IntelQaBigIntToFlatBuffer(m, &opData->m);
-    ret += IntelQaBigIntToFlatBuffer(r, &opData->r);
-    ret += IntelQaBigIntToFlatBuffer(s, &opData->s);
+    ret =  IntelQaBigIntToFlatBuffer(m,  &opData->m);
+    ret += IntelQaBigIntToFlatBuffer(r,  &opData->r);
+    ret += IntelQaBigIntToFlatBuffer(s,  &opData->s);
     ret += IntelQaBigIntToFlatBuffer(xp, &opData->xp);
     ret += IntelQaBigIntToFlatBuffer(yp, &opData->yp);
-    ret += IntelQaBigIntToFlatBuffer(a, &opData->a);
-    ret += IntelQaBigIntToFlatBuffer(b, &opData->b);
-    ret += IntelQaBigIntToFlatBuffer(q, &opData->q);
-    ret += IntelQaBigIntToFlatBuffer(n, &opData->n);
+    ret += IntelQaBigIntToFlatBuffer(a,  &opData->a);
+    ret += IntelQaBigIntToFlatBuffer(b,  &opData->b);
+    ret += IntelQaBigIntToFlatBuffer(q,  &opData->q);
+    ret += IntelQaBigIntToFlatBuffer(n,  &opData->n);
     ret += IntelQaBigIntToFlatBuffer(xg, &opData->xg);
     ret += IntelQaBigIntToFlatBuffer(yg, &opData->yg);
     if (ret != 0) {
@@ -3826,7 +4010,7 @@ int IntelQaEcdsaVerify(WC_ASYNC_DEV* dev, WC_BIGINT* m,
             callback,
             dev,
             opData,
-            &verifyStatus);
+            verifyStatus);
     } while (IntelQaHandleCpaStatus(dev, status, &ret, QAT_ECDSA_ASYNC, callback,
         &retryCount));
 

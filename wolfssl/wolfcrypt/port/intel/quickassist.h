@@ -180,6 +180,17 @@ typedef void (*IntelQaFreeFunc)(struct WC_ASYNC_DEV*);
     };
 #endif
 
+#ifdef WOLFSSL_SP_MATH
+    struct sp_int;
+    #define MATH_INT_T struct sp_int
+#elif defined(USE_FAST_MATH)
+    struct fp_int;
+    #define MATH_INT_T struct fp_int
+#else
+    struct mp_int;
+    #define MATH_INT_T struct mp_int
+#endif
+
 /* QuickAssist device */
 typedef struct IntelQaDev {
 	CpaInstanceHandle handle;
@@ -238,11 +249,23 @@ typedef struct IntelQaDev {
         } cipher;
     #endif
     #if defined(QAT_ENABLE_PKI) && defined(HAVE_ECC)
+        struct {
+            CpaCyEcPointMultiplyOpData opData;
+            CpaFlatBuffer pXk;
+            CpaFlatBuffer pYk;
+            CpaBoolean multiplyStatus;
+
+            /* output pub */
+            MATH_INT_T* pubX;
+            MATH_INT_T* pubY;
+            MATH_INT_T* pubZ;
+        } ecc_mul;
         #ifdef HAVE_ECC_DHE
         struct {
             CpaCyEcdhPointMultiplyOpData opData;
             CpaFlatBuffer pXk;
             CpaFlatBuffer pYk;
+            CpaBoolean multiplyStatus;
         } ecc_ecdh;
         #endif
         #ifdef HAVE_ECC_SIGN
@@ -250,6 +273,7 @@ typedef struct IntelQaDev {
             CpaCyEcdsaSignRSOpData opData;
             CpaFlatBuffer R;
             CpaFlatBuffer S;
+            CpaBoolean signStatus;
 
             struct WC_BIGINT* pR;
             struct WC_BIGINT* pS;
@@ -258,6 +282,7 @@ typedef struct IntelQaDev {
         #ifdef HAVE_ECC_VERIFY
         struct {
             CpaCyEcdsaVerifyOpData opData;
+            CpaBoolean verifyStatus;
             int* stat;
         } ecc_verify;
         #endif
@@ -428,6 +453,11 @@ WOLFSSL_LOCAL int IntelQaGetCyInstanceCount(void);
 
 #ifdef HAVE_ECC
     #ifdef HAVE_ECC_DHE
+        WOLFSSL_LOCAL int IntelQaEccPointMul(struct WC_ASYNC_DEV* dev,
+            struct WC_BIGINT* k, MATH_INT_T* pubX, MATH_INT_T* pubY, MATH_INT_T* pubZ,
+            struct WC_BIGINT* xG, struct WC_BIGINT* yG,
+            struct WC_BIGINT* a, struct WC_BIGINT* b,
+            struct WC_BIGINT* q, word32 cofactor);
         WOLFSSL_LOCAL int IntelQaEcdh(struct WC_ASYNC_DEV* dev,
             struct WC_BIGINT* k, struct WC_BIGINT* xG,
             struct WC_BIGINT* yG, byte* out, word32* outlen,
