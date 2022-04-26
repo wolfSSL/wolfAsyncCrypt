@@ -36,8 +36,8 @@
 #include <string.h>
 
 /* use thread local for QAE variables (removing mutex requirement) */
+#include <pthread.h> /* for threadId tracking */
 #ifdef USE_QAE_THREAD_LS
-    #include <pthread.h> /* for threadId tracking */
     #define QAE_THREAD_LS THREAD_LS_T
 #else
     #define QAE_THREAD_LS
