@@ -3504,7 +3504,14 @@ int IntelQaEccPointMul(WC_ASYNC_DEV* dev, WC_BIGINT* k,
     ret = IntelQaBigIntToFlatBuffer(k, &opData->k);
     ret += IntelQaBigIntToFlatBuffer(xG, &opData->xg);
     ret += IntelQaBigIntToFlatBuffer(yG, &opData->yg);
-    ret += IntelQaBigIntToFlatBuffer(a, &opData->a);
+    if (a != NULL && a->buf == NULL) {
+        /* The Koblitz curves can have a zero param "a" */
+        ret += IntelQaAllocFlatBuffer(&opData->a, k->len, dev->heap);
+        XMEMSET(opData->a.pData, 0, k->len);
+    }
+    else {
+        ret += IntelQaBigIntToFlatBuffer(a, &opData->a);
+    }
     ret += IntelQaBigIntToFlatBuffer(b, &opData->b);
     ret += IntelQaBigIntToFlatBuffer(q, &opData->q);
     if (ret != 0) {
@@ -3686,7 +3693,14 @@ int IntelQaEcdh(WC_ASYNC_DEV* dev, WC_BIGINT* k, WC_BIGINT* xG,
     ret = IntelQaBigIntToFlatBuffer(k, &opData->k);
     ret += IntelQaBigIntToFlatBuffer(xG, &opData->xg);
     ret += IntelQaBigIntToFlatBuffer(yG, &opData->yg);
-    ret += IntelQaBigIntToFlatBuffer(a, &opData->a);
+    if (a != NULL && a->buf == NULL) {
+        /* The Koblitz curves can have a zero param "a" */
+        ret += IntelQaAllocFlatBuffer(&opData->a, k->len, dev->heap);
+        XMEMSET(opData->a.pData, 0, k->len);
+    }
+    else {
+        ret += IntelQaBigIntToFlatBuffer(a, &opData->a);
+    }
     ret += IntelQaBigIntToFlatBuffer(b, &opData->b);
     ret += IntelQaBigIntToFlatBuffer(q, &opData->q);
     if (ret != 0) {
