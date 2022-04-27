@@ -70,6 +70,8 @@
     #include <wolfcrypt/src/misc.c>
 #endif
 
+#include <pthread.h>
+
 /* Async enables (1=non-block, 0=block) */
 #ifndef QAT_RSA_ASYNC
 #define QAT_RSA_ASYNC        1
@@ -802,6 +804,7 @@ static int IntelQaPollBlockRet(WC_ASYNC_DEV* dev, int ret_wait)
 
     do {
         ret = IntelQaPoll(dev);
+        (void)ret; /* not used */
 
         if (dev->qat.ret != ret_wait) {
             break;
@@ -1996,9 +1999,10 @@ static int IntelQaSymOpen(WC_ASYNC_DEV* dev, CpaCySymSessionSetupData* setup,
     /* Determine size of session context to allocate - use max size */
     status = cpaCySymSessionCtxGetSize(dev->qat.handle, setup, &sessionCtxSize);
 
-    if (ctx->symCtxSize > 0 && ctx->symCtxSize > sessionCtxSize) {
-        printf("Symmetric context size error! Buf %d, Exp %d\n",
-            ctx->symCtxSize, sessionCtxSize);
+    if (status != CPA_STATUS_SUCCESS || (ctx->symCtxSize > 0 &&
+                                         ctx->symCtxSize > sessionCtxSize)) {
+        printf("Symmetric context size error %d! Buf %d, Exp %d\n",
+            status, ctx->symCtxSize, sessionCtxSize);
         return ASYNC_OP_E;
     }
 
@@ -3500,7 +3504,14 @@ int IntelQaEccPointMul(WC_ASYNC_DEV* dev, WC_BIGINT* k,
     ret = IntelQaBigIntToFlatBuffer(k, &opData->k);
     ret += IntelQaBigIntToFlatBuffer(xG, &opData->xg);
     ret += IntelQaBigIntToFlatBuffer(yG, &opData->yg);
-    ret += IntelQaBigIntToFlatBuffer(a, &opData->a);
+    if (a != NULL && a->buf == NULL) {
+        /* The Koblitz curves can have a zero param "a" */
+        ret += IntelQaAllocFlatBuffer(&opData->a, k->len, dev->heap);
+        XMEMSET(opData->a.pData, 0, k->len);
+    }
+    else {
+        ret += IntelQaBigIntToFlatBuffer(a, &opData->a);
+    }
     ret += IntelQaBigIntToFlatBuffer(b, &opData->b);
     ret += IntelQaBigIntToFlatBuffer(q, &opData->q);
     if (ret != 0) {
@@ -3682,7 +3693,14 @@ int IntelQaEcdh(WC_ASYNC_DEV* dev, WC_BIGINT* k, WC_BIGINT* xG,
     ret = IntelQaBigIntToFlatBuffer(k, &opData->k);
     ret += IntelQaBigIntToFlatBuffer(xG, &opData->xg);
     ret += IntelQaBigIntToFlatBuffer(yG, &opData->yg);
-    ret += IntelQaBigIntToFlatBuffer(a, &opData->a);
+    if (a != NULL && a->buf == NULL) {
+        /* The Koblitz curves can have a zero param "a" */
+        ret += IntelQaAllocFlatBuffer(&opData->a, k->len, dev->heap);
+        XMEMSET(opData->a.pData, 0, k->len);
+    }
+    else {
+        ret += IntelQaBigIntToFlatBuffer(a, &opData->a);
+    }
     ret += IntelQaBigIntToFlatBuffer(b, &opData->b);
     ret += IntelQaBigIntToFlatBuffer(q, &opData->q);
     if (ret != 0) {
@@ -3797,14 +3815,11 @@ static void IntelQaEcdsaSignCallback(void *pCallbackTag,
             ret = ECC_CURVE_OID_E;
         }
         else {
-            /* mark event result */
-            ret = 0; /* success */
-        }
-
-        /* populate result */
-        ret = IntelQaFlatBufferToBigInt(pR, dev->qat.op.ecc_sign.pR);
-        if (ret == 0) {
-            ret = IntelQaFlatBufferToBigInt(pS, dev->qat.op.ecc_sign.pS);
+            /* success - populate result */
+            ret = IntelQaFlatBufferToBigInt(pR, dev->qat.op.ecc_sign.pR);
+            if (ret == 0) {
+                ret = IntelQaFlatBufferToBigInt(pS, dev->qat.op.ecc_sign.pS);
+            }
         }
     }
     (void)opData;
