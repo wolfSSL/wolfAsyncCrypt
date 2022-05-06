@@ -284,7 +284,16 @@ wolfSSL Server Benchmark 16384 bytes
 
 ## Change Log
 
-### wolfSSL Async Release 5.2.0 (Feb 21, 2022)
+### wolfSSL Async Release v5.3.0 (May 5, 2022)
+
+* Added Intel QuickAssist ECC Key Generation acceleration. Specifically point multiplication similar to our `wc_ecc_mulmod_ex2`.
+* Fix for building Intel QAT with SP math all
+* Fix for `error: unused function 'IntelQaFreeFlatBuffer'`.
+* Fix for handling the Koblitz curve param "a", which is all zeros.
+* Fixes for scan-build warnings.
+* Includes wolfSSL PR https://github.com/wolfSSL/wolfssl/pull/5101
+
+### wolfSSL Async Release v5.2.0 (Feb 21, 2022)
 
 * Adds `WC_NO_ASYNC_SLEEP` option to hide wc_AsyncSleep for platforms that do not need it.
 * Fix for async test anonymous union on some platforms (`#pragma anon_unions` and `HAVE_ANONYMOUS_INLINE_AGGREGATES`)

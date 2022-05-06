@@ -207,6 +207,7 @@ static WC_INLINE int IntelQaAllocFlatBuffer(CpaFlatBuffer* buf, int size, void* 
     buf->dataLenInBytes = size;
     return 0;
 }
+#ifdef WOLFSSL_KEY_GEN
 static WC_INLINE void IntelQaFreeFlatBuffer(CpaFlatBuffer* buf, void* heap)
 {
     if (buf && buf->pData) {
@@ -215,6 +216,7 @@ static WC_INLINE void IntelQaFreeFlatBuffer(CpaFlatBuffer* buf, void* heap)
         buf->dataLenInBytes = 0;
     }
 }
+#endif
 static WC_INLINE int IntelQaBigIntToFlatBuffer(WC_BIGINT* src, CpaFlatBuffer* dst)
 {
     if (src == NULL || src->buf == NULL || dst == NULL) {
@@ -557,6 +559,10 @@ int IntelQaOpen(WC_ASYNC_DEV* dev, int devId)
 
     dev->qat.devId = devId;
     dev->qat.handle = g_cyInstances[devId];
+
+#ifdef QAT_DEBUG
+    printf("IntelQaOpen %p\n", dev);
+#endif
 
 #ifdef QAT_USE_POLLING_THREAD
     /* start polling thread */
