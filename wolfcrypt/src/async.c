@@ -849,7 +849,7 @@ int wc_AsyncSleep(word32 ms)
     } while ((ret!=0) && (errno == EINTR));
 
     if (ret != 0) {
-        printf("nanoSleep failed with code %d\n", ret);
+        fprintf(stderr, "nanoSleep failed with code %d\n", ret);
         return BAD_FUNC_ARG;
     }
 
@@ -879,7 +879,7 @@ int wc_AsyncThreadCreate_ex(pthread_t *thread,
 
     status = pthread_attr_init(&attr);
     if (status !=0) {
-        printf("%d\n", errno);
+        fprintf(stderr, "pthread_attr_init error: %d\n", status);
         return ASYNC_OP_E;
     }
 
@@ -938,7 +938,7 @@ int wc_AsyncThreadCreate_ex(pthread_t *thread,
 
 exit_fail:
 
-    printf("AsyncThreadCreate error: %d\n", errno);
+    fprintf(stderr, "AsyncThreadCreate error: %d\n", status);
     pthread_attr_destroy(&attr);
     return ASYNC_OP_E;
 }
@@ -1004,7 +1004,7 @@ int wc_AsyncThreadBind(pthread_t *thread, word32 logicalCore)
 
     status = pthread_setaffinity_np(*thread, sizeof(cpu_set_t), &cpuset);
     if (status != 0) {
-        printf("pthread_setaffinity_np, status %d, errno %d\n", status, errno);
+        fprintf(stderr, "pthread_setaffinity_np error: %d\n", status);
     }
 
     return status;
@@ -1030,7 +1030,7 @@ int wc_AsyncThreadKill(pthread_t *thread)
 
     status = pthread_cancel(*thread);
     if (status != 0) {
-        printf("pthread_cancel: Failed to cancel the thread!\n");
+        fprintf(stderr, "pthread_cancel fail with status %d\n", status);
     }
 
     return status;
@@ -1049,7 +1049,7 @@ int wc_AsyncThreadPrioritySet(pthread_t *thread, word32 priority)
 
     status = pthread_getschedparam(*thread, &policy, &param);
     if (status != 0) {
-        printf("pthread_getschedparam, failed with status %d\n", status);
+        fprintf(stderr, "pthread_getschedparam, failed with status %d\n", status);
         return status;
     }
 
@@ -1057,7 +1057,7 @@ int wc_AsyncThreadPrioritySet(pthread_t *thread, word32 priority)
     maxPrio =  sched_get_priority_max(policy);
 
     if ((priority < minPrio) || (priority > maxPrio)) {
-        printf("priority outside valid range\n");
+        fprintf(stderr, "priority %u outside valid range\n", priority);
         return BAD_FUNC_ARG;
     }
 
@@ -1065,7 +1065,7 @@ int wc_AsyncThreadPrioritySet(pthread_t *thread, word32 priority)
 
     status = pthread_setschedparam(*thread, policy, &param);
     if (status != 0) {
-        printf("pthread_setschedparam, failed with status %d\n", status);
+        fprintf(stderr, "pthread_setschedparam, failed with status %d\n", status);
         return status;
     }
 
@@ -1087,7 +1087,7 @@ int wc_AsyncThreadSetPolicyAndPriority(pthread_t *thread, word32 policy,
         (policy != SCHED_FIFO) &&
         (policy != SCHED_OTHER))
     {
-        printf("policy error\n");
+        fprintf(stderr, "wc_AsyncThreadSetPolicyAndPriority: invalid policy %u\n", policy);
         return BAD_FUNC_ARG;
     }
 
@@ -1095,7 +1095,7 @@ int wc_AsyncThreadSetPolicyAndPriority(pthread_t *thread, word32 policy,
 
     status = pthread_getschedparam(*thread, &policy1, &param);
     if (status != 0) {
-        printf("pthread_getschedparam error: %d\n", errno);
+        fprintf(stderr, "pthread_getschedparam error: %d\n", status);
         return status;
     }
 
@@ -1110,7 +1110,7 @@ int wc_AsyncThreadSetPolicyAndPriority(pthread_t *thread, word32 policy,
 
     status = pthread_setschedparam(*thread, policy, &param);
     if (status != 0) {
-        printf("pthread_setschedparam error: %d\n", errno);
+        fprintf(stderr, "pthread_setschedparam error: %d\n", status);
         return status;
     }
 
@@ -1122,7 +1122,7 @@ int wc_AsyncThreadJoin(pthread_t *thread)
     int status;
     status = pthread_join(*thread, NULL);
     if (status != 0) {
-        printf("pthread_join failed, status: %d\n", status);
+        fprintf(stderr, "pthread_join failed, status: %d\n", status);
     }
     return status;
 }
