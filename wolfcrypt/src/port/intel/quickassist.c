@@ -4246,7 +4246,7 @@ static void IntelQaDhAgreeCallback(void *pCallbackTag, CpaStatus status,
 
         /* return data and trim leading zeros */
         if (dev->qat.out && (dev->qat.out != pOut->pData || idxTrim > 0)) {
-            XMEMCPY(dev->qat.out, &out[idxTrim], pOut->dataLenInBytes);
+            XMEMMOVE(dev->qat.out, &out[idxTrim], pOut->dataLenInBytes);
         }
 
         /* return final length */
