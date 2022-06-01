@@ -44,7 +44,7 @@ static WC_ASYNC_DEV* wolfAsync_GetDev(WOLF_EVENT* event)
             case WOLF_EVENT_TYPE_ASYNC_WOLFSSL:
             {
                 WOLFSSL* ssl = (WOLFSSL*)event->context;
-                dev = ssl->async.dev;
+                dev = ssl->asyncDev;
                 break;
             }
 
