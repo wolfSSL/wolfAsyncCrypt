@@ -284,6 +284,12 @@ wolfSSL Server Benchmark 16384 bytes
 
 ## Change Log
 
+### wolfSSL Async Release v5.4.0 (July 11, 2022)
+* Fix for DH trim of leading zeros to use memmove.
+* Fix to print errors to stderr.
+* Fix to consistently return the status of failed pthreads funcs.
+* Move async device pointer (https://github.com/wolfSSL/wolfssl/pull/5149)
+
 ### wolfSSL Async Release v5.3.0 (May 5, 2022)
 
 * Added Intel QuickAssist ECC Key Generation acceleration. Specifically point multiplication similar to our `wc_ecc_mulmod_ex2`.
