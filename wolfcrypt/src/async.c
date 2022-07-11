@@ -933,13 +933,18 @@ int wc_AsyncThreadCreate_ex(pthread_t *thread,
 
     /*destroy the thread attributes as they are no longer required, this does
     * not affect the created thread*/
-    pthread_attr_destroy(&attr);
-    return 0;
+    status = pthread_attr_destroy(&attr);
+    if (status != 0) {
+        fprintf(stderr, "AsyncThreadCreate error: %d\n", status);
+        return ASYNC_OP_E;
+    } else {
+        return 0;
+    }
 
 exit_fail:
 
     fprintf(stderr, "AsyncThreadCreate error: %d\n", status);
-    pthread_attr_destroy(&attr);
+    (void)pthread_attr_destroy(&attr);
     return ASYNC_OP_E;
 }
 
