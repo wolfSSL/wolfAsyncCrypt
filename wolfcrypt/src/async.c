@@ -679,6 +679,8 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
                         {
                             event->ret = wolfAsync_crypt_test(asyncDev);
                         }
+                #elif defined(WOLFSSL_ECDHE_NONBLOCK)
+                    /* No hardware involved. Nothing to do. */
                 #else
                     #warning No async crypt hardware defined!
                 #endif
