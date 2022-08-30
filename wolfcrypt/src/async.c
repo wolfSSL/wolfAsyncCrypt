@@ -67,70 +67,70 @@ static WC_ASYNC_DEV* wolfAsync_GetDev(WOLF_EVENT* event)
 }
 
 
-#if defined(WOLFSSL_ASYNC_CRYPT_TEST)
+#if defined(WOLFSSL_ASYNC_CRYPT_SW)
 
-/* Allow way to have async test code included, and disabled at run-time */
-static int wolfAsyncTestDisabled = 0; /* default off */
+/* Allow way to have async SW code included, and disabled at run-time */
+static int wolfAsyncSwDisabled = 0; /* default off */
 
 
-static int wolfAsync_crypt_test(WC_ASYNC_DEV* asyncDev)
+static int wolfAsync_DoSw(WC_ASYNC_DEV* asyncDev)
 {
     int ret = 0;
-    WC_ASYNC_TEST* testDev;
+    WC_ASYNC_SW* sw;
 
     if (asyncDev == NULL) {
         return BAD_FUNC_ARG;
     }
-    testDev = &asyncDev->test;
+    sw = &asyncDev->sw;
 
-    switch (testDev->type) {
+    switch (sw->type) {
 #ifdef HAVE_ECC
-        case ASYNC_TEST_ECC_MAKE:
+        case ASYNC_SW_ECC_MAKE:
         {
             ret = wc_ecc_make_key_ex(
-                (WC_RNG*)testDev->eccMake.rng,
-                testDev->eccMake.size,
-                (ecc_key*)testDev->eccMake.key,
-                testDev->eccMake.curve_id
+                (WC_RNG*)sw->eccMake.rng,
+                sw->eccMake.size,
+                (ecc_key*)sw->eccMake.key,
+                sw->eccMake.curve_id
             );
             break;
         }
     #ifdef HAVE_ECC_SIGN
-        case ASYNC_TEST_ECC_SIGN:
+        case ASYNC_SW_ECC_SIGN:
         {
             ret = wc_ecc_sign_hash_ex(
-                testDev->eccSign.in,
-                testDev->eccSign.inSz,
-                (WC_RNG*)testDev->eccSign.rng,
-                (ecc_key*)testDev->eccSign.key,
-                (mp_int*)testDev->eccSign.r,
-                (mp_int*)testDev->eccSign.s
+                sw->eccSign.in,
+                sw->eccSign.inSz,
+                (WC_RNG*)sw->eccSign.rng,
+                (ecc_key*)sw->eccSign.key,
+                (mp_int*)sw->eccSign.r,
+                (mp_int*)sw->eccSign.s
             );
             break;
         }
     #endif /* HAVE_ECC_SIGN */
     #ifdef HAVE_ECC_VERIFY
-        case ASYNC_TEST_ECC_VERIFY:
+        case ASYNC_SW_ECC_VERIFY:
         {
             ret = wc_ecc_verify_hash_ex(
-                (mp_int*)testDev->eccVerify.r,
-                (mp_int*)testDev->eccVerify.s,
-                testDev->eccVerify.hash,
-                testDev->eccVerify.hashlen,
-                testDev->eccVerify.stat,
-                (ecc_key*)testDev->eccVerify.key
+                (mp_int*)sw->eccVerify.r,
+                (mp_int*)sw->eccVerify.s,
+                sw->eccVerify.hash,
+                sw->eccVerify.hashlen,
+                sw->eccVerify.stat,
+                (ecc_key*)sw->eccVerify.key
             );
             break;
         }
     #endif /* HAVE_ECC_VERIFY */
     #ifdef HAVE_ECC_DHE
-        case ASYNC_TEST_ECC_SHARED_SEC:
+        case ASYNC_SW_ECC_SHARED_SEC:
         {
             ret = wc_ecc_shared_secret_gen(
-                (ecc_key*)testDev->eccSharedSec.private_key,
-                (ecc_point*)testDev->eccSharedSec.public_point,
-                testDev->eccSharedSec.out,
-                testDev->eccSharedSec.outLen
+                (ecc_key*)sw->eccSharedSec.private_key,
+                (ecc_point*)sw->eccSharedSec.public_point,
+                sw->eccSharedSec.out,
+                sw->eccSharedSec.outLen
             );
             break;
         }
@@ -138,113 +138,113 @@ static int wolfAsync_crypt_test(WC_ASYNC_DEV* asyncDev)
 #endif /* HAVE_ECC */
 #ifndef NO_RSA
     #ifdef WOLFSSL_KEY_GEN
-        case ASYNC_TEST_RSA_MAKE:
+        case ASYNC_SW_RSA_MAKE:
         {
             ret = wc_MakeRsaKey(
-                (RsaKey*)testDev->rsaMake.key,
-                testDev->rsaMake.size,
-                testDev->rsaMake.e,
-                (WC_RNG*)testDev->rsaMake.rng
+                (RsaKey*)sw->rsaMake.key,
+                sw->rsaMake.size,
+                sw->rsaMake.e,
+                (WC_RNG*)sw->rsaMake.rng
             );
             break;
         }
     #endif /* WOLFSSL_KEY_GEN */
-        case ASYNC_TEST_RSA_FUNC:
+        case ASYNC_SW_RSA_FUNC:
         {
             ret = wc_RsaFunction(
-                testDev->rsaFunc.in,
-                testDev->rsaFunc.inSz,
-                testDev->rsaFunc.out,
-                testDev->rsaFunc.outSz,
-                testDev->rsaFunc.type,
-                (RsaKey*)testDev->rsaFunc.key,
-                (WC_RNG*)testDev->rsaFunc.rng
+                sw->rsaFunc.in,
+                sw->rsaFunc.inSz,
+                sw->rsaFunc.out,
+                sw->rsaFunc.outSz,
+                sw->rsaFunc.type,
+                (RsaKey*)sw->rsaFunc.key,
+                (WC_RNG*)sw->rsaFunc.rng
             );
             break;
         }
 #endif /* !NO_RSA */
 #ifndef NO_DH
-        case ASYNC_TEST_DH_AGREE:
+        case ASYNC_SW_DH_AGREE:
         {
             ret = wc_DhAgree(
-                (DhKey*)testDev->dhAgree.key,
-                testDev->dhAgree.agree,
-                testDev->dhAgree.agreeSz,
-                testDev->dhAgree.priv,
-                testDev->dhAgree.privSz,
-                testDev->dhAgree.otherPub,
-                testDev->dhAgree.pubSz
+                (DhKey*)sw->dhAgree.key,
+                sw->dhAgree.agree,
+                sw->dhAgree.agreeSz,
+                sw->dhAgree.priv,
+                sw->dhAgree.privSz,
+                sw->dhAgree.otherPub,
+                sw->dhAgree.pubSz
             );
             break;
         }
-        case ASYNC_TEST_DH_GEN:
+        case ASYNC_SW_DH_GEN:
         {
             ret = wc_DhGenerateKeyPair(
-                (DhKey*)testDev->dhGen.key,
-                (WC_RNG*)testDev->dhGen.rng,
-                testDev->dhGen.priv,
-                testDev->dhGen.privSz,
-                testDev->dhGen.pub,
-                testDev->dhGen.pubSz
+                (DhKey*)sw->dhGen.key,
+                (WC_RNG*)sw->dhGen.rng,
+                sw->dhGen.priv,
+                sw->dhGen.privSz,
+                sw->dhGen.pub,
+                sw->dhGen.pubSz
             );
             break;
         }
 #endif /* !NO_DH */
 #ifndef NO_AES
-        case ASYNC_TEST_AES_CBC_ENCRYPT:
+        case ASYNC_SW_AES_CBC_ENCRYPT:
         {
             ret = wc_AesCbcEncrypt(
-                (Aes*)testDev->aes.aes,
-                testDev->aes.out,
-                testDev->aes.in,
-                testDev->aes.sz
+                (Aes*)sw->aes.aes,
+                sw->aes.out,
+                sw->aes.in,
+                sw->aes.sz
             );
             break;
         }
     #ifdef HAVE_AES_DECRYPT
-        case ASYNC_TEST_AES_CBC_DECRYPT:
+        case ASYNC_SW_AES_CBC_DECRYPT:
         {
             ret = wc_AesCbcDecrypt(
-                (Aes*)testDev->aes.aes,
-                testDev->aes.out,
-                testDev->aes.in,
-                testDev->aes.sz
+                (Aes*)sw->aes.aes,
+                sw->aes.out,
+                sw->aes.in,
+                sw->aes.sz
             );
             break;
         }
     #endif /* HAVE_AES_DECRYPT */
 
     #ifdef HAVE_AESGCM
-        case ASYNC_TEST_AES_GCM_ENCRYPT:
+        case ASYNC_SW_AES_GCM_ENCRYPT:
         {
             ret = wc_AesGcmEncrypt(
-                (Aes*)testDev->aes.aes,
-                testDev->aes.out,
-                testDev->aes.in,
-                testDev->aes.sz,
-                testDev->aes.iv,
-                testDev->aes.ivSz,
-                testDev->aes.authTag,
-                testDev->aes.authTagSz,
-                testDev->aes.authIn,
-                testDev->aes.authInSz
+                (Aes*)sw->aes.aes,
+                sw->aes.out,
+                sw->aes.in,
+                sw->aes.sz,
+                sw->aes.iv,
+                sw->aes.ivSz,
+                sw->aes.authTag,
+                sw->aes.authTagSz,
+                sw->aes.authIn,
+                sw->aes.authInSz
             );
             break;
         }
         #ifdef HAVE_AES_DECRYPT
-        case ASYNC_TEST_AES_GCM_DECRYPT:
+        case ASYNC_SW_AES_GCM_DECRYPT:
         {
             ret = wc_AesGcmDecrypt(
-                (Aes*)testDev->aes.aes,
-                testDev->aes.out,
-                testDev->aes.in,
-                testDev->aes.sz,
-                testDev->aes.iv,
-                testDev->aes.ivSz,
-                testDev->aes.authTag,
-                testDev->aes.authTagSz,
-                testDev->aes.authIn,
-                testDev->aes.authInSz
+                (Aes*)sw->aes.aes,
+                sw->aes.out,
+                sw->aes.in,
+                sw->aes.sz,
+                sw->aes.iv,
+                sw->aes.ivSz,
+                sw->aes.authTag,
+                sw->aes.authTagSz,
+                sw->aes.authIn,
+                sw->aes.authInSz
             );
             break;
         }
@@ -252,52 +252,52 @@ static int wolfAsync_crypt_test(WC_ASYNC_DEV* asyncDev)
     #endif /* HAVE_AESGCM */
 #endif /* !NO_AES */
 #ifndef NO_DES3
-        case ASYNC_TEST_DES3_CBC_ENCRYPT:
+        case ASYNC_SW_DES3_CBC_ENCRYPT:
         {
             ret = wc_Des3_CbcEncrypt(
-                (Des3*)testDev->des.des,
-                testDev->des.out,
-                testDev->des.in,
-                testDev->des.sz
+                (Des3*)sw->des.des,
+                sw->des.out,
+                sw->des.in,
+                sw->des.sz
             );
             break;
         }
-        case ASYNC_TEST_DES3_CBC_DECRYPT:
+        case ASYNC_SW_DES3_CBC_DECRYPT:
         {
             ret = wc_Des3_CbcDecrypt(
-                (Des3*)testDev->des.des,
-                testDev->des.out,
-                testDev->des.in,
-                testDev->des.sz
+                (Des3*)sw->des.des,
+                sw->des.out,
+                sw->des.in,
+                sw->des.sz
             );
             break;
         }
 #endif /* !NO_DES3 */
         default:
-            WOLFSSL_MSG("Invalid async crypt test type!");
+            WOLFSSL_MSG("Invalid async crypt SW type!");
             ret = BAD_FUNC_ARG;
             break;
     };
 
     /* Reset test type */
-    testDev->type = ASYNC_TEST_NONE;
+    sw->type = ASYNC_SW_NONE;
 
     return ret;
 }
 
-int wc_AsyncTestInit(WC_ASYNC_DEV* dev, int type)
+int wc_AsyncSwInit(WC_ASYNC_DEV* dev, int type)
 {
     if (dev) {
-        WC_ASYNC_TEST* testDev = &dev->test;
-        if (testDev->type == ASYNC_TEST_NONE) {
-            testDev->type = type;
-            return 1; /* submit async test */
+        WC_ASYNC_SW* sw = &dev->sw;
+        if (sw->type == ASYNC_SW_NONE) {
+            sw->type = type;
+            return 1;
         }
     }
     return 0;
 }
 
-#endif /* WOLFSSL_ASYNC_CRYPT_TEST */
+#endif /* WOLFSSL_ASYNC_CRYPT_SW */
 
 int wolfAsync_DevOpenThread(int *pDevId, void* threadId)
 {
@@ -316,9 +316,9 @@ int wolfAsync_DevOpenThread(int *pDevId, void* threadId)
         devId = ret;
     else
         ret = ASYNC_INIT_E;
-#elif defined(WOLFSSL_ASYNC_CRYPT_TEST)
-    if (!wolfAsyncTestDisabled) {
-        /* For test use any value 0 or greater */
+#elif defined(WOLFSSL_ASYNC_CRYPT_SW)
+    if (!wolfAsyncSwDisabled) {
+        /* For SW use any value 0 or greater */
         devId = 0;
     }
 #endif
@@ -524,8 +524,8 @@ int wolfAsync_EventPoll(WOLF_EVENT* event, WOLF_EVENT_FLAG flags)
     #elif defined(HAVE_INTEL_QA)
         /* poll QAT hardware, callback returns data, IntelQaPoll sets event */
         ret = IntelQaPoll(asyncDev);
-    #elif defined(WOLFSSL_ASYNC_CRYPT_TEST)
-        event->ret = wolfAsync_crypt_test(asyncDev);
+    #elif defined(WOLFSSL_ASYNC_CRYPT_SW)
+        event->ret = wolfAsync_DoSw(asyncDev);
     #endif
 
         /* If not pending then mark as done */
@@ -629,7 +629,6 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
     }
 #endif
 
-    /* if check hardware flag is set */
     if (flags & WOLF_POLL_FLAG_CHECK_HW) {
         /* check event queue */
         for (event = queue->head; event != NULL; event = event->next) {
@@ -671,16 +670,16 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
                         break;
                     }
 
-                #elif defined(WOLFSSL_ASYNC_CRYPT_TEST)
-                    #ifdef WOLF_ASYNC_TEST_SKIP_MOD
+                #elif defined(WOLFSSL_ASYNC_CRYPT_SW)
+                    #ifdef WOLF_ASYNC_SW_SKIP_MOD
                         /* Simulate random hardware not done */
-                        if (count % WOLF_ASYNC_TEST_SKIP_MOD)
+                        if (count % WOLF_ASYNC_SW_SKIP_MOD)
                     #endif
                         {
-                            event->ret = wolfAsync_crypt_test(asyncDev);
+                            event->ret = wolfAsync_DoSw(asyncDev);
                         }
                 #else
-                    #warning No async crypt hardware defined!
+                    #warning No async crypt device defined!
                 #endif
 
                     /* If not pending then mark as done */
@@ -699,7 +698,7 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
                             queue, context_filter, &multi_req, req_count);
         }
     #endif
-    } /* flag WOLF_POLL_FLAG_CHECK_HW */
+    } /* flag  WOLF_POLL_FLAG_CHECK_HW */
 
     /* process event queue */
     count = 0;
