@@ -280,7 +280,12 @@ static int wolfAsync_DoSw(WC_ASYNC_DEV* asyncDev)
     };
 
     /* Reset test type */
-    sw->type = ASYNC_SW_NONE;
+    if (ret == FP_WOULDBLOCK) {
+        ret = WC_PENDING_E;
+    }
+    else if (ret == 0) {
+        sw->type = ASYNC_SW_NONE;
+    }
 
     return ret;
 }
