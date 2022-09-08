@@ -8,7 +8,7 @@ This repository contains the async.c and async.h files required for using Asynch
 This feature is enabled using:
 `./configure --enable-asynccrypt` or `#define WOLFSSL_ASYNC_CRYPT`.
 
-The async crypt simulator is enabled by default if the hardware does not support async crypto or it can be manually enabled using `#define WOLFSSL_ASYNC_CRYPT_TEST`.
+If async crypto is enabled but no hardware backend is enabled or if `WOLFSSL_ASYNC_CRYPT_SW` is defined, a software backend using wolfCrypt is used instead. This software backend can simulate periodic hardware delays using the macro `WOLF_ASYNC_SW_SKIP_MOD`, which is on by default if `DEBUG_WOLFSSL` is defined.
 
 ## Design
 
@@ -20,13 +20,16 @@ A generic event system has been created using a `WOLF_EVENT` structure when `HAV
 
 The asynchronous crypto system is modeled after epoll. The implementation uses `wolfSSL_AsyncPoll` or `wolfSSL_CTX_AsyncPoll` to check if any async operations are complete.
 
+## Hardware Backends
 
-## Hardware
-
-Supported hardware:
+Supported hardware backends:
 
 * Intel QuickAssist with QAT 1.6 or QAT 1.7 driver. See README.md in `wolfcrypt/src/port/intel/README.md`.
 * Cavium Nitrox III and V. See README.md in `wolfcrypt/src/port/cavium/README.md`.
+
+## wolfCrypt Backend
+
+The wolfCrypt backend uses the same API as the hardware backends do. Once an asynchronous operation is initiated with the software backend, subsequent calls to `wolfSSL_AsyncPoll` will call into wolfCrypt to complete the operation. If non-blocking is enabled, for example, for ECC (via `WC_ECC_NONBLOCK`), each `wolfSSL_AsyncPoll` will do a chunk of work for the operation and return, to minimize blocking time.
 
 ## API's
 
@@ -42,7 +45,7 @@ Polls the provided WOLFSSL object's reference to the WOLFSSL_CTX's event queue t
 int wolfSSL_CTX_AsyncPoll(WOLFSSL_CTX* ctx, WOLF_EVENT** events, int maxEvents, WOLF_EVENT_FLAG flags, int* eventCount)
 ```
 
-Polls the provided WOLFSSL_CTX context event queue to see if any pending events are done. If the `events` argument is provided then a pointer to the `WOLF_EVENT` will be returned up to `maxEvents`. If `eventCount` is provided then the number of events populated will be returned. The `flags` allows for `WOLF_POLL_FLAG_CHECK_HW` to indicate if hardware should be polled again or just return more events.
+Polls the provided WOLFSSL_CTX context event queue to see if any pending events are done. If the `events` argument is provided then a pointer to the `WOLF_EVENT` will be returned up to `maxEvents`. If `eventCount` is provided then the number of events populated will be returned. The `flags` allows for `WOLF_POLL_FLAG_CHECK_HW` to indicate if the crypto backend (i.e. hardware or wolfCrypt, if the software implementation is being used) should be polled again or just return more events.
 
 ### ```wolfAsync_DevOpen```
 ```
@@ -65,7 +68,6 @@ void wolfAsync_DevClose(int *devId)
 Closes the async device.
 
 ### ```wolfAsync_DevCopy```
-
 ```
 int wolfAsync_DevCopy(WC_ASYNC_DEV* src, WC_ASYNC_DEV* dst);
 ```

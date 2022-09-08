@@ -39,58 +39,58 @@
 struct WC_ASYNC_DEV;
 
 
-/* Asyncronous Crypt Tests */
-#ifdef WOLFSSL_ASYNC_CRYPT_TEST
-    enum WC_ASYNC_TEST_TYPE {
-        ASYNC_TEST_NONE             = 0,
+/* Asyncronous crypto using software */
+#ifdef WOLFSSL_ASYNC_CRYPT_SW
+    enum WC_ASYNC_SW_TYPE {
+        ASYNC_SW_NONE             = 0,
 #ifdef HAVE_ECC
-        ASYNC_TEST_ECC_MAKE         = 1,
+        ASYNC_SW_ECC_MAKE         = 1,
     #ifdef HAVE_ECC_SIGN
-        ASYNC_TEST_ECC_SIGN         = 2,
+        ASYNC_SW_ECC_SIGN         = 2,
     #endif
     #ifdef HAVE_ECC_VERIFY
-        ASYNC_TEST_ECC_VERIFY       = 3,
+        ASYNC_SW_ECC_VERIFY       = 3,
     #endif
     #ifdef HAVE_ECC_DHE
-        ASYNC_TEST_ECC_SHARED_SEC   = 4,
+        ASYNC_SW_ECC_SHARED_SEC   = 4,
     #endif
 #endif /* HAVE_ECC */
 #ifndef NO_RSA
     #ifdef WOLFSSL_KEY_GEN
-        ASYNC_TEST_RSA_MAKE         = 5,
+        ASYNC_SW_RSA_MAKE         = 5,
     #endif
-        ASYNC_TEST_RSA_FUNC         = 6,
+        ASYNC_SW_RSA_FUNC         = 6,
 #endif /* !NO_RSA */
 #ifndef NO_DH
-        ASYNC_TEST_DH_AGREE         = 7,
-        ASYNC_TEST_DH_GEN           = 8,
+        ASYNC_SW_DH_AGREE         = 7,
+        ASYNC_SW_DH_GEN           = 8,
 #endif /* !NO_DH */
 #ifndef NO_AES
-        ASYNC_TEST_AES_CBC_ENCRYPT  = 9,
+        ASYNC_SW_AES_CBC_ENCRYPT  = 9,
     #ifdef HAVE_AES_DECRYPT
-        ASYNC_TEST_AES_CBC_DECRYPT  = 10,
+        ASYNC_SW_AES_CBC_DECRYPT  = 10,
     #endif
     #ifdef HAVE_AESGCM
-        ASYNC_TEST_AES_GCM_ENCRYPT  = 11,
+        ASYNC_SW_AES_GCM_ENCRYPT  = 11,
         #ifdef HAVE_AES_DECRYPT
-        ASYNC_TEST_AES_GCM_DECRYPT  = 12,
+        ASYNC_SW_AES_GCM_DECRYPT  = 12,
         #endif
     #endif /* HAVE_AESGCM */
 #endif /* !NO_AES */
 #ifndef NO_DES3
-        ASYNC_TEST_DES3_CBC_ENCRYPT = 13,
-        ASYNC_TEST_DES3_CBC_DECRYPT = 14,
+        ASYNC_SW_DES3_CBC_ENCRYPT = 13,
+        ASYNC_SW_DES3_CBC_DECRYPT = 14,
 #endif /* !NO_DES3 */
     };
 
 #ifdef HAVE_ECC
-    struct AsyncCryptTestEccMake {
+    struct AsyncCryptSwEccMake {
         void* rng; /* WC_RNG */
         void* key; /* ecc_key */
         int curve_id;
         int size;
     };
-    struct AsyncCryptTestEccSign {
+    struct AsyncCryptSwEccSign {
         const byte* in;
         word32 inSz;
         void* rng; /* WC_RNG */
@@ -98,7 +98,7 @@ struct WC_ASYNC_DEV;
         void* r; /* mp_int */
         void* s; /* mp_int */
     };
-    struct AsyncCryptTestEccVerify {
+    struct AsyncCryptSwEccVerify {
         void* r; /* mp_int */
         void* s; /* mp_int */
         const byte* hash;
@@ -106,7 +106,7 @@ struct WC_ASYNC_DEV;
         int* stat;
         void* key; /* ecc_key */
     };
-    struct AsyncCryptTestEccSharedSec {
+    struct AsyncCryptSwEccSharedSec {
         void* private_key; /* ecc_key */
         void* public_point; /* ecc_point */
         byte* out;
@@ -115,14 +115,14 @@ struct WC_ASYNC_DEV;
 #endif /* HAVE_ECC */
 #ifndef NO_RSA
     #ifdef WOLFSSL_KEY_GEN
-        struct AsyncCryptTestRsaMake {
+        struct AsyncCryptSwRsaMake {
             void* key; /* RsaKey */
             void* rng;
             long e;
             int size;
         };
     #endif
-    struct AsyncCryptTestRsaFunc {
+    struct AsyncCryptSwRsaFunc {
         const byte* in;
         word32 inSz;
         byte* out;
@@ -134,7 +134,7 @@ struct WC_ASYNC_DEV;
 #endif /* !NO_RSA */
 
 #ifndef NO_DH
-    struct AsyncCryptTestDhAgree {
+    struct AsyncCryptSwDhAgree {
         void* key; /* DhKey */
         byte* agree;
         word32* agreeSz;
@@ -143,7 +143,7 @@ struct WC_ASYNC_DEV;
         const byte* otherPub;
         word32 pubSz;
     };
-    struct AsyncCryptTestDhGen {
+    struct AsyncCryptSwDhGen {
         void* key; /* DhKey */
         void* rng; /* WC_RNG */
         byte* priv;
@@ -154,7 +154,7 @@ struct WC_ASYNC_DEV;
 #endif /* !NO_DH */
 
 #ifndef NO_AES
-    struct AsyncCryptTestAes {
+    struct AsyncCryptSwAes {
         void* aes; /* Aes */
         byte* out;
         const byte* in;
@@ -171,7 +171,7 @@ struct WC_ASYNC_DEV;
 #endif /* !NO_AES */
 
 #ifndef NO_DES3
-    struct AsyncCryptTestDes {
+    struct AsyncCryptSwDes {
         void* des; /* Des */
         byte* out;
         const byte* in;
@@ -184,44 +184,44 @@ struct WC_ASYNC_DEV;
         #pragma anon_unions
     #endif
 
-    typedef struct WC_ASYNC_TEST {
+    typedef struct WC_ASYNC_SW {
         void* ctx;
     #if HAVE_ANONYMOUS_INLINE_AGGREGATES
         union {
     #endif
     #ifdef HAVE_ECC
-            struct AsyncCryptTestEccMake eccMake;
-            struct AsyncCryptTestEccSign eccSign;
-            struct AsyncCryptTestEccVerify eccVerify;
-            struct AsyncCryptTestEccSharedSec eccSharedSec;
+            struct AsyncCryptSwEccMake eccMake;
+            struct AsyncCryptSwEccSign eccSign;
+            struct AsyncCryptSwEccVerify eccVerify;
+            struct AsyncCryptSwEccSharedSec eccSharedSec;
     #endif /* HAVE_ECC */
     #ifndef NO_RSA
         #ifdef WOLFSSL_KEY_GEN
-            struct AsyncCryptTestRsaMake rsaMake;
+            struct AsyncCryptSwRsaMake rsaMake;
         #endif
-            struct AsyncCryptTestRsaFunc rsaFunc;
+            struct AsyncCryptSwRsaFunc rsaFunc;
     #endif /* !NO_RSA */
     #ifndef NO_DH
-        struct AsyncCryptTestDhAgree dhAgree;
-        struct AsyncCryptTestDhGen dhGen;
+        struct AsyncCryptSwDhAgree dhAgree;
+        struct AsyncCryptSwDhGen dhGen;
     #endif /* !NO_DH */
     #ifndef NO_AES
-        struct AsyncCryptTestAes aes;
+        struct AsyncCryptSwAes aes;
     #endif /* !NO_AES */
     #ifndef NO_DES3
-        struct AsyncCryptTestDes des;
+        struct AsyncCryptSwDes des;
     #endif /* !NO_DES3 */
     #if HAVE_ANONYMOUS_INLINE_AGGREGATES
         }; /* union */
     #endif
-        byte type; /* enum WC_ASYNC_TEST_TYPE */
-    } WC_ASYNC_TEST;
+        byte type; /* enum WC_ASYNC_SW_TYPE */
+    } WC_ASYNC_SW;
 
     #ifdef __CC_ARM
         #pragma pop
     #endif
 
-#endif /* WOLFSSL_ASYNC_CRYPT_TEST */
+#endif /* WOLFSSL_ASYNC_CRYPT_SW */
 
 /* Performance tuning options */
 
@@ -235,8 +235,8 @@ struct WC_ASYNC_DEV;
 
     #ifdef DEBUG_WOLFSSL
         /* Use this to introduce extra delay in simulator at interval */
-        #ifndef WOLF_ASYNC_TEST_SKIP_MOD
-            #define WOLF_ASYNC_TEST_SKIP_MOD    (WOLF_ASYNC_MAX_PENDING / 2)
+        #ifndef WOLF_ASYNC_SW_SKIP_MOD
+            #define WOLF_ASYNC_SW_SKIP_MOD    (WOLF_ASYNC_MAX_PENDING / 2)
         #endif
     #endif
 #endif
@@ -361,7 +361,7 @@ typedef struct WC_ASYNC_DEV {
 #elif defined(HAVE_INTEL_QA)
     IntelQaDev          qat;
 #else
-    WC_ASYNC_TEST       test;
+    WC_ASYNC_SW         sw;
 #endif
 } WC_ASYNC_DEV;
 
@@ -391,8 +391,8 @@ WOLFSSL_API int wc_AsyncWait(int ret, WC_ASYNC_DEV* asyncDev,
 
 WOLFSSL_API int wc_AsyncSleep(word32 ms);
 
-#ifdef WOLFSSL_ASYNC_CRYPT_TEST
-    WOLFSSL_API int wc_AsyncTestInit(WC_ASYNC_DEV* dev, int type);
+#ifdef WOLFSSL_ASYNC_CRYPT_SW
+    WOLFSSL_API int wc_AsyncSwInit(WC_ASYNC_DEV* dev, int type);
 #endif
 
 /* Pthread Helpers */
