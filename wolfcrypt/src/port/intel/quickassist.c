@@ -3525,20 +3525,11 @@ int IntelQaEccPointMul(WC_ASYNC_DEV* dev, WC_BIGINT* k,
     }
 
     /* setup cofactor */
+    /* for this point multiply the cofactor should not be used, so always pass 1 */
     /* if using default value 1 then use shared global */
     opData->h.dataLenInBytes = 4;
-    if (cofactor == 1) {
-        opData->h.pData = g_qatEcdhCofactor1;
-    }
-    else {
-        /* if not default value 1, then use own buffer */
-        opData->h.pData = XMALLOC(opData->h.dataLenInBytes, dev->heap,
-            DYNAMIC_TYPE_ASYNC_NUMA);
-        if (opData->h.pData == NULL) {
-            ret = MEMORY_E; goto exit;
-        }
-        *((word32*)opData->h.pData) = OS_HOST_TO_NW_32(cofactor);
-    }
+    opData->h.pData = g_qatEcdhCofactor1;
+    (void)cofactor;
 
     ret =  IntelQaAllocFlatBuffer(pXk, q->len, dev->heap);
     ret += IntelQaAllocFlatBuffer(pYk, q->len, dev->heap);
@@ -3714,20 +3705,11 @@ int IntelQaEcdh(WC_ASYNC_DEV* dev, WC_BIGINT* k, WC_BIGINT* xG,
     }
 
     /* setup cofactor */
+    /* for this point multiply the cofactor should not be used, so always pass 1 */
     /* if using default value 1 then use shared global */
     opData->h.dataLenInBytes = 4;
-    if (cofactor == 1) {
-        opData->h.pData = g_qatEcdhCofactor1;
-    }
-    else {
-        /* if not default value 1, then use own buffer */
-        opData->h.pData = XMALLOC(opData->h.dataLenInBytes, dev->heap,
-            DYNAMIC_TYPE_ASYNC_NUMA);
-        if (opData->h.pData == NULL) {
-            ret = MEMORY_E; goto exit;
-        }
-        *((word32*)opData->h.pData) = OS_HOST_TO_NW_32(cofactor);
-    }
+    opData->h.pData = g_qatEcdhCofactor1;
+    (void)cofactor;
 
     pXk->dataLenInBytes = q->len; /* bytes key size / 8 (aligned) */
     pXk->pData = XREALLOC(out, pXk->dataLenInBytes, dev->heap,
