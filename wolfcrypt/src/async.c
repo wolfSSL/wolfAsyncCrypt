@@ -273,6 +273,28 @@ static int wolfAsync_DoSw(WC_ASYNC_DEV* asyncDev)
             break;
         }
 #endif /* !NO_DES3 */
+#ifdef HAVE_CURVE25519
+        case ASYNC_SW_X25519_MAKE:
+        {
+            ret = wc_curve25519_make_key(
+                (WC_RNG*)sw->x25519Make.rng,
+                sw->x25519Make.size,
+                (curve25519_key*)sw->x25519Make.key
+            );
+            break;
+        }
+        case ASYNC_SW_X25519_SHARED_SEC:
+        {
+            ret = wc_curve25519_shared_secret_ex(
+                (curve25519_key*)sw->x25519SharedSec.priv,
+                (curve25519_key*)sw->x25519SharedSec.pub,
+                sw->x25519SharedSec.out,
+                sw->x25519SharedSec.outLen,
+                sw->x25519SharedSec.endian
+            );
+            break;
+        }
+#endif /* HAVE_CURVE25519 */
         default:
             WOLFSSL_MSG("Invalid async crypt SW type!");
             ret = BAD_FUNC_ARG;
@@ -283,6 +305,11 @@ static int wolfAsync_DoSw(WC_ASYNC_DEV* asyncDev)
     if (ret == FP_WOULDBLOCK) {
         ret = WC_PENDING_E;
     }
+#if defined(HAVE_CURVE25519) && defined(WC_X25519_NONBLOCK)
+    else if (ret == WC_X25519_NB_NOT_DONE) {
+        ret = WC_PENDING_E;
+    }
+#endif /* HAVE_CURVE25519 && WC_X25519_NONBLOCK */
     else if (ret == 0) {
         sw->type = ASYNC_SW_NONE;
     }
