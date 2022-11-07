@@ -305,11 +305,6 @@ static int wolfAsync_DoSw(WC_ASYNC_DEV* asyncDev)
     if (ret == FP_WOULDBLOCK) {
         ret = WC_PENDING_E;
     }
-#if defined(HAVE_CURVE25519) && defined(WC_X25519_NONBLOCK)
-    else if (ret == WC_X25519_NB_NOT_DONE) {
-        ret = WC_PENDING_E;
-    }
-#endif /* HAVE_CURVE25519 && WC_X25519_NONBLOCK */
     else if (ret == 0) {
         sw->type = ASYNC_SW_NONE;
     }
