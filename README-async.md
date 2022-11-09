@@ -141,8 +141,8 @@ int wc_AsyncHandle(WC_ASYNC_DEV* asyncDev, WOLF_EVENT_QUEUE* queue, word32 flags
 
 This will push the event inside asyncDev into the provided queue.
 
-### ```wc_AsyncWait```    
-```    
+### ```wc_AsyncWait```
+```
 int wc_AsyncWait(int ret, WC_ASYNC_DEV* asyncDev, word32 flags);
 ```
 
@@ -285,6 +285,25 @@ wolfSSL Server Benchmark 16384 bytes
 ```
 
 ## Change Log
+
+### wolfSSL Async Release v5.5.3 (Nov 8, 2022)
+
+* Includes all wolfSSL v5.5.1-v5.5.3 fixes. See ChangeLog.md here: https://github.com/wolfSSL/wolfssl/blob/master/ChangeLog.md#wolfssl-release-553-nov-2-2022
+* Fix for Intel QAT handling of sign R when cofactor is not 1. https://github.com/wolfSSL/wolfssl/pull/5737 and https://github.com/wolfSSL/wolfAsyncCrypt/pull/54
+* Fix check scalar bits for ECC cofactor. https://github.com/wolfSSL/wolfssl/pull/5737
+* Fixes for async sniffer: https://github.com/wolfSSL/wolfssl/pull/5734
+  - Handling of packets with multiple TLS messages.
+  - Multiple back to back sessions.
+  - Ensure all pending queued packets are finished before ending pcap processing.
+* Fix for various tests that do not properly handle `WC_PENDING_E`. https://github.com/wolfSSL/wolfssl/pull/5773
+* Revert "Fix for sniffer to decode out of order packets". https://github.com/wolfSSL/wolfssl/pull/5771
+
+### wolfSSL Async Release v5.5.0 (Sep 2, 2022)
+
+* Includes all wolfSSL v5.5.0 fixes. See ChangeLog.md here: https://github.com/wolfSSL/wolfssl/blob/master/ChangeLog.md#wolfssl-release-550-aug-30-2022
+* Fix for handling return codes from `pthread_attr_destroy`.
+* Fix for async session tickets. https://github.com/wolfSSL/wolfssl/pull/5534
+* Fix for async with OCSP non-blocking in ProcessPeerCerts. https://github.com/wolfSSL/wolfssl/pull/5539
 
 ### wolfSSL Async Release v5.4.0 (July 11, 2022)
 * Fix for DH trim of leading zeros to use memmove.
