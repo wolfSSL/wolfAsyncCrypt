@@ -285,6 +285,9 @@ struct WC_ASYNC_DEV;
     #ifndef WC_ASYNC_NO_ECC
         #define WC_ASYNC_ENABLE_ECC
     #endif
+    #ifndef WC_ASYNC_NO_ECC_KEYGEN
+        #define WC_ASYNC_ENABLE_ECC_KEYGEN
+    #endif
     #ifndef WC_ASYNC_NO_DH
         #define WC_ASYNC_ENABLE_DH
     #endif
