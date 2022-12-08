@@ -126,7 +126,7 @@ static int wolfAsync_DoSw(WC_ASYNC_DEV* asyncDev)
     #ifdef HAVE_ECC_DHE
         case ASYNC_SW_ECC_SHARED_SEC:
         {
-            ret = wc_ecc_shared_secret_gen(
+            ret = wc_ecc_shared_secret_ex(
                 (ecc_key*)sw->eccSharedSec.private_key,
                 (ecc_point*)sw->eccSharedSec.public_point,
                 sw->eccSharedSec.out,
