@@ -286,6 +286,11 @@ wolfSSL Server Benchmark 16384 bytes
 
 ## Change Log
 
+### wolfSSL Async Release v5.5.4 (Dec 22, 2022)
+
+* Includes all wolfSSL v5.5.4 fixes. See ChangeLog.md here: https://github.com/wolfSSL/wolfssl/blob/master/ChangeLog.md#wolfssl-release-554-dec-21-2022
+* Use the `wc_ecc_shared_secret_ex` version for async test. Requires https://github.com/wolfSSL/wolfssl/pull/5868
+
 ### wolfSSL Async Release v5.5.3 (Nov 8, 2022)
 
 * Includes all wolfSSL v5.5.1-v5.5.3 fixes. See ChangeLog.md here: https://github.com/wolfSSL/wolfssl/blob/master/ChangeLog.md#wolfssl-release-553-nov-2-2022
