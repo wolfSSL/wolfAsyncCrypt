@@ -557,6 +557,12 @@ int IntelQaOpen(WC_ASYNC_DEV* dev, int devId)
         return ASYNC_INIT_E;
     }
 
+    if (devId >= g_numInstances) {
+        fprintf(stderr, "IntelQA: devId %d exceeds number of instances %u\n",
+                devId, g_numInstances);
+        return NO_VALID_DEVID;
+    }
+
     dev->qat.devId = devId;
     dev->qat.handle = g_cyInstances[devId];
 
