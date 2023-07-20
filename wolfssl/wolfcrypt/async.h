@@ -360,7 +360,7 @@ typedef struct WC_ASYNC_DEV {
     CaviumNitroxDev     nitrox;
 #elif defined(HAVE_INTEL_QA)
     IntelQaDev          qat;
-#else
+#elif defined(WOLFSSL_ASYNC_CRYPT_SW)
     WC_ASYNC_SW         sw;
 #endif
 } WC_ASYNC_DEV;
