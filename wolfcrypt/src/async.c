@@ -435,7 +435,8 @@ int wolfAsync_DevCopy(WC_ASYNC_DEV* src, WC_ASYNC_DEV* dst)
     return ret;
 }
 
-/* called from `wolfSSL_AsyncPop` to check if event is done and deliver async return code */
+/* called from `wolfSSL_AsyncPop` to check if event is done and deliver
+ * async return code */
 int wolfAsync_EventPop(WOLF_EVENT* event, enum WOLF_EVENT_TYPE event_type)
 {
     int ret;
@@ -683,6 +684,9 @@ int wolfAsync_EventQueuePoll(WOLF_EVENT_QUEUE* queue, void* context_filter,
                         {
                             event->ret = wolfAsync_DoSw(asyncDev);
                         }
+                #elif defined(WOLF_CRYPTO_CB) || defined(HAVE_PK_CALLBACKS)
+                    /* Use crypto or PK callbacks */
+
                 #else
                     #warning No async crypt device defined!
                 #endif
