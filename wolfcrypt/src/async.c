@@ -458,7 +458,7 @@ int wolfAsync_EventPop(WOLF_EVENT* event, enum WOLF_EVENT_TYPE event_type)
         event->state = WOLF_EVENT_STATE_READY;
     }
     else {
-        ret = WC_NOT_PENDING_E;
+        ret = WC_NO_PENDING_E;
     }
 
     return ret;
