@@ -286,6 +286,10 @@ wolfSSL Server Benchmark 16384 bytes
 
 ## Change Log
 
+### wolfSSL Async Release v5.6.4 (Oct 30, 2023)
+* Fixes for support async with crypto or pk callbacks.
+* Rename `WC_NOT_PENDING_E` -> `WC_NO_PENDING_E`
+
 ### wolfSSL Async Release v5.6.3 (June 16, 2023)
 * Includes all wolfSSL v5.6.3 fixes. See ChangeLog.md here: https://github.com/wolfSSL/wolfssl/blob/master/ChangeLog.md#wolfssl-release-563-jun-16-2023
 * Add sanity check of index devId before accessing array

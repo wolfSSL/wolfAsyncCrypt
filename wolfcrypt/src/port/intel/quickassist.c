@@ -4050,6 +4050,8 @@ static void IntelQaDhKeyGenFree(WC_ASYNC_DEV* dev)
     CpaFlatBuffer* pOut = &dev->qat.op.dh_gen.pOut;
 
     if (opData) {
+        IntelQaFreeFlatBuffer(&opData->privateValueX, dev->heap);
+
         XMEMSET(opData, 0, sizeof(CpaCyDhPhase1KeyGenOpData));
     }
 
@@ -4130,13 +4132,16 @@ int IntelQaDhKeyGen(WC_ASYNC_DEV* dev, WC_BIGINT* p, WC_BIGINT* g,
     /* setup operation data */
     ret =  IntelQaBigIntToFlatBuffer(p, &opData->primeP);
     ret += IntelQaBigIntToFlatBuffer(g, &opData->baseG);
+    /* transfer control of big int buffer to opData structure */
     ret += IntelQaBigIntToFlatBuffer(x, &opData->privateValueX);
+    /* don't let caller free x, do it in IntelQaDhKeyGenFree */
+    x->buf = NULL;
+    x->len = 0;
     if (ret != 0) {
         ret = BAD_FUNC_ARG; goto exit;
     }
     pOut->dataLenInBytes = p->len;
     pOut->pData = XREALLOC(pub, p->len, dev->heap, DYNAMIC_TYPE_ASYNC_NUMA);
-
     if (pOut->pData == NULL) {
         ret = MEMORY_E; goto exit;
     }

@@ -1,6 +1,6 @@
 # Intel QuickAssist Adapter Asynchronous Support
 
-The wolfSSL / wolfCrypt libraries support hardware crypto acceleration using the Intel QuickAssist adapter. This software has been tested using QAT 1.6 in user space on Cent OS (Kernel 3.10.0-327.22.2.el7.x86_64) on an Intel(R) Core(TM) i7-4790 CPU @ 3.60GHz. Intel QuickAssist is DH895xCC (BDF=03:00.0, Stepping A0, device 0 is SKU2).
+The wolfSSL / wolfCrypt libraries support hardware crypto acceleration using the Intel QuickAssist adapter. This software has been tested using the Intel DH8970 and DH8950 QuickAssist adapters.
 
 ## Overview
 
@@ -13,33 +13,30 @@ The asynchronous crypto files are located at `wolfcrypt/src/async.c` and `wolfss
 
 ## Building
 
-QuickAssist drivers can be downloaded from Intel here:
-https://01.org/intel-quick-assist-technology/downloads
+1. Download Driver: The latest driver for QAT can be found here: https://www.intel.com/content/www/us/en/download/19734
 
-The latest driver for QAT can be found here:
-https://www.intel.com/content/www/us/en/download/19734
+2. Notes:
 
-### QAT 1.7
+* If you have the older driver installed you may need to remove it or unload the module and reboot.
+* If you are using the QAT hardware hashing, you may need to disable the params checking, which doesn't support a last partial with 0 length source input. Code runs and works, but parameter checking will fail.
+Use `./configure --disable-param-check && sudo make install`
+* If you want to use legacy algorithms like RSA 1024 bit then Use `./configure --enable-legacy-algorithms`
+* Recommend not using `make -j` due to synchronization issues on dependencies.
 
-The latest QAT 1.7 Linux release:
-https://downloadcenter.intel.com/download/30178
+3. Setup `QAT` and `wolfssl` next to each other in the same folder.
 
-Note: If you have the older driver installed you may need to remove it or unload the module and reboot.
+4. Build QAT Driver
 
-1. Setup `QAT1.7` and `wolfssl` next to each other in the same folder.
-
-2. Build QAT 1.7
-
-Prerequisites: 
-`sudo apt-get install libudev-dev`
+Prerequisites Ubuntu:
+`sudo apt-get install libudev-dev pciutils-dev g++ pkg-config libssl-dev`
 OR
-`sudo yum install systemd-devel`
+Prerequisites CentOS:
+`sudo yum install pciutils libudev-devel kernel-devel-$(uname -r) gcc openssl-devel`
 
 ```sh
-mkdir QAT1.7
-cd QAT1.7
-curl -o QAT1.7.L.4.14.0-00031.tar.gz https://downloadmirror.intel.com/30178/eng/QAT1.7.L.4.14.0-00031.tar.gz
-tar -xvzf QAT1.7.L.4.14.0-00031.tar.gz
+mkdir QAT
+cd QAT
+tar -zxof QAT.L.4.23.0-00001.tar.gz
 ./configure
 sudo make install
 ...
@@ -56,44 +53,20 @@ $ lspci -d 8086: | grep QuickAssist
 86:00.0 Co-processor: Intel Corporation C62x Chipset QuickAssist Technology (rev 04)
 ```
 
-If you are using the QAT hardware hashing, you may need to disable the params checking, which doesn't support a last partial with 0 length source input. Code runs and works, but parameter checking will fail.
-Use `./configure --disable-param-check && sudo make install`
+5. Build wolfSSL:
 
-3. Change owner permissions for build output directory:
-	
-	`sudo chown [user]:[user] build`
-	
-	To manually startup the services you can use:
-	
-	```
-	sudo modprobe usdm_drv
-	sudo service qat_service start
-	```
+```sh
+cd ../wolfssl
+./configure --with-intelqa=../QAT --enable-asynccrypt
+make
+```
 
-4. Build wolfSSL:
-	
-	```
-	cd ../wolfssl
-	./configure --with-intelqa=../QAT1.7 --enable-asynccrypt
-	make
-	```	
-	
-
-### QAT 1.6
-
-1. Setup `QAT1.6` and `wolfssl` next to each other in the same folder.
-2. Build the QAT 1.6:
-  * Run the installer using `sudo ./installer.sh`
-  * Choose option 3 to install.
-  * After reboot you'll need to make sure and load the qaeMemDrv.ko module. `sudo insmod ./QAT1.6/build/qaeMemDrv.ko`
-3. Build wolfSSL:
-  * `./configure --enable-asynccrypt --with-intelqa=../QAT1.6 && make`
 
 ## Usage
 
 Running wolfCrypt test and benchmark must be done with `sudo` to allow hardware access. By default the QuickAssist code uses the "SSL" process name via `QAT_PROCESS_NAME` in quickassist.h to match up to the hardware configuration.
 
-Note: `sudo make check` will fail since default QAT configuration doesn't allow multiple concurrent processes to use hardware. You can run each of the make check scripts individually with sudo. The hardware configuration can be customized by editing the `QAT1.6/build/dh895xcc_qa_dev0.conf` file to allow multiple processes.
+Note: `sudo make check` will fail since default QAT configuration doesn't allow multiple concurrent processes to use hardware. You can run each of the make check scripts individually with sudo. The hardware configuration can be customized by editing the `QAT/build/dh895xcc_qa_dev0.conf` file to allow multiple processes.
 
 Here are some build options for tuning your use:
 
@@ -113,18 +86,18 @@ The QuickAssist v1.6 driver uses its own memory management system in `quickassis
 1. `USE_QAE_STATIC_MEM`: Uses a global pool for the list of allocations. This improves performance, but consumes extra up front memory. The pre-allocation size can be tuned using `QAE_USER_MEM_MAX_COUNT`.
 2. `USE_QAE_THREAD_LS` : Uses thread-local-storage and removes the mutex. Can improve performance in multi-threaded environment, but does use extra memory.
 
-For QuickAssist v1.7 the newer usdm memory driver is used directly.
+For QuickAssist v1.7 or later the newer usdm memory driver is used directly.
 
 ### Recommended wolfSSL Build Options
 
 ```sh
-$ ./configure --with-intelqa=../QAT1.7 --enable-asynccrypt \
+$ ./configure --with-intelqa=../QAT --enable-asynccrypt \
 	--enable-aesni --enable-intelasm \
 	--enable-sp --enable-sp-asm \
 	CFLAGS="-DWC_ASYNC_NO_HASH"
 ```
 
-* `--with-intelqa=../QAT1.7`: Enables the Intel QuickAssist mode.
+* `--with-intelqa=../QAT`: Enables the Intel QuickAssist mode.
 * `--enable-asynccrypt`: Enables asynchronous cryptography mode.
 * `--enable-aesni`: Enables the Intel AES-NI assembly speedups.
 * `--enable-intelasm`: Enables the Intel ASM (AVX/AVX2) speedups.
@@ -149,7 +122,7 @@ Multiple concurrent threads will be started based on the number of CPU's availab
 Intel QuickAssist DH8950 on Intel(R) Xeon(R) CPU E5-2678 v3 @ 2.50GHz:
 
 Recommended wolfSSL build options when benchmarking.
-$ ./configure --enable-sp --enable-sp-asm --enable-aesni --enable-intelasm --enable-intelrand --enable-keygen --enable-sha3 --enable-asynccrypt --with-intelqa=../QAT1.7 CFLAGS="-DWC_ASYNC_THRESH_NONE -DQAT_MAX_PENDING=40 -DWC_ASYNC_BENCH_THREAD_COUNT=2"
+$ ./configure --enable-sp --enable-sp-asm --enable-aesni --enable-intelasm --enable-intelrand --enable-keygen --enable-sha3 --enable-asynccrypt --with-intelqa=../QAT CFLAGS="-DWC_ASYNC_THRESH_NONE -DQAT_MAX_PENDING=40 -DWC_ASYNC_BENCH_THREAD_COUNT=2"
 $ make
 
 $ sudo ./wolfcrypt/benchmark/benchmark -rsa_sign -base10 -threads 2 -print
@@ -430,7 +403,7 @@ Enable asynccrypt alone to use async simulator.
 ## Debugging
 
 To enable debug messages:
-`./configure --enable-asynccrypt --with-intelqa=../QAT1.7 --enable-debug --disable-shared CFLAGS="-DQAT_DEBUG" && make`
+`./configure --enable-asynccrypt --with-intelqa=../QAT --enable-debug --disable-shared CFLAGS="-DQAT_DEBUG" && make`
 
 
 ## Support
