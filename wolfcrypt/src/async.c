@@ -952,7 +952,9 @@ int wc_AsyncThreadCreate_ex(pthread_t *thread,
 exit_fail:
 
     fprintf(stderr, "AsyncThreadCreate error: %d\n", status);
-    (void)pthread_attr_destroy(&attr);
+    status = pthread_attr_destroy(&attr);
+    if (status != 0)
+        fprintf(stderr, "AsyncThreadCreate cleanup error: %d\n", status);
     return ASYNC_OP_E;
 }
 
