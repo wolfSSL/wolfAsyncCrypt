@@ -286,6 +286,10 @@ wolfSSL Server Benchmark 16384 bytes
 
 ## Change Log
 
+### wolfSSL Async Release v5.6.6 (Dec 20, 2023)
+* Includes all wolfSSL v5.6.6 fixes. See ChangeLog.md here: https://github.com/wolfSSL/wolfssl/blob/master/ChangeLog.md#wolfssl-release-566-dec-19-2023
+* Add return code checking for wc_AsyncThreadCreate_ex in exit_fail section for pthread_attr_destroy. (PR #72)
+
 ### wolfSSL Async Release v5.6.4 (Oct 30, 2023)
 * Fixes for support async with crypto or pk callbacks.
 * Rename `WC_NOT_PENDING_E` -> `WC_NO_PENDING_E`
