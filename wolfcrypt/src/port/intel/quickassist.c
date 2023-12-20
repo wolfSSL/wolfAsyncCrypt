@@ -207,7 +207,7 @@ static WC_INLINE int IntelQaAllocFlatBuffer(CpaFlatBuffer* buf, int size, void* 
     buf->dataLenInBytes = size;
     return 0;
 }
-#ifdef WOLFSSL_KEY_GEN
+#if !defined(NO_DH) || defined(WOLFSSL_KEY_GEN)
 static WC_INLINE void IntelQaFreeFlatBuffer(CpaFlatBuffer* buf, void* heap)
 {
     if (buf && buf->pData) {
