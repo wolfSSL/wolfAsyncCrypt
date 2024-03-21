@@ -286,6 +286,9 @@ wolfSSL Server Benchmark 16384 bytes
 
 ## Change Log
 
+### wolfSSL Async Release v5.7.0 (Mar 21, 2023)
+* Includes all wolfSSL v5.7.0 fixes. See ChangeLog.md here: https://github.com/wolfSSL/wolfssl/blob/master/ChangeLog.md#wolfssl-release-570-mar-20-2024
+
 ### wolfSSL Async Release v5.6.6 (Dec 20, 2023)
 * Includes all wolfSSL v5.6.6 fixes. See ChangeLog.md here: https://github.com/wolfSSL/wolfssl/blob/master/ChangeLog.md#wolfssl-release-566-dec-19-2023
  - Plus wolfSSL PR 7085 fix for invalid `dh_ffdhe_test` for even P when using Intel QuickAssist. https://github.com/wolfSSL/wolfssl/pull/7085
