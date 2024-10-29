@@ -193,7 +193,7 @@ typedef void (*IntelQaFreeFunc)(struct WC_ASYNC_DEV*);
 
 /* QuickAssist device */
 typedef struct IntelQaDev {
-	CpaInstanceHandle handle;
+    CpaInstanceHandle handle;
     int devId;
 
     /* callback return info */

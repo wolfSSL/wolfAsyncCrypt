@@ -1235,7 +1235,7 @@ static void IntelQaRsaKeyGenCallback(void *pCallbackTag,
         RsaKey* key = dev->qat.op.rsa_keygen.rsakey;
         if (key) {
             /* Populate RsaKey Parameters */
-            /* raw BigInt buffer ownership is transfered to RsaKey */
+            /* raw BigInt buffer ownership is transferred to RsaKey */
             /* cleanup is handled in wc_FreeRsaKey */
 
             /* modulusN */
@@ -1280,7 +1280,7 @@ static void IntelQaRsaKeyGenCallback(void *pCallbackTag,
             /* exponent1Dp */
             if (ret == 0)
                 ret = IntelQaFlatBufferToBigInt(
-                    &pPrivateKey->privateKeyRep2.exponent2Dq, &key->dP.raw);
+                    &pPrivateKey->privateKeyRep2.exponent1Dp, &key->dP.raw);
             if (ret == 0)
                 ret = mp_read_unsigned_bin(&key->dP,
                     key->dP.raw.buf, key->dP.raw.len);
@@ -1288,7 +1288,7 @@ static void IntelQaRsaKeyGenCallback(void *pCallbackTag,
             /* exponent2Dq */
             if (ret == 0)
                 ret = IntelQaFlatBufferToBigInt(
-                    &pPrivateKey->privateKeyRep2.exponent1Dp, &key->dQ.raw);
+                    &pPrivateKey->privateKeyRep2.exponent2Dq, &key->dQ.raw);
             if (ret == 0)
                 ret = mp_read_unsigned_bin(&key->dQ,
                     key->dQ.raw.buf, key->dQ.raw.len);
