@@ -286,13 +286,18 @@ wolfSSL Server Benchmark 16384 bytes
 
 ## Change Log
 
+### wolfSSL Async Release v5.7.4 (Oct 29, 2024)
+* Includes all wolfSSL v5.7.4 fixes. See ChangeLog.md here: https://github.com/wolfSSL/wolfssl/blob/master/ChangeLog.md#wolfssl-release-574-oct-24-2024
+ - Plus fixes for asynchronous release - SHA3/HMAC devId (https://github.com/wolfSSL/wolfssl/pull/8119)
+* Fix for Intel QuickAssist RSA Key generation exponent result. (https://github.com/wolfSSL/wolfAsyncCrypt/pull/75)
+
 ### wolfSSL Async Release v5.7.0 (Mar 21, 2023)
 * Includes all wolfSSL v5.7.0 fixes. See ChangeLog.md here: https://github.com/wolfSSL/wolfssl/blob/master/ChangeLog.md#wolfssl-release-570-mar-20-2024
 
 ### wolfSSL Async Release v5.6.6 (Dec 20, 2023)
 * Includes all wolfSSL v5.6.6 fixes. See ChangeLog.md here: https://github.com/wolfSSL/wolfssl/blob/master/ChangeLog.md#wolfssl-release-566-dec-19-2023
  - Plus wolfSSL PR 7085 fix for invalid `dh_ffdhe_test` for even P when using Intel QuickAssist. https://github.com/wolfSSL/wolfssl/pull/7085
-* Fix for missing `IntelQaFreeFlatBuffer`` with DH enabled and no keygen. (broken in PR #71)
+* Fix for missing `IntelQaFreeFlatBuffer` with DH enabled and no keygen. (broken in PR #71)
 * Add return code checking for wc_AsyncThreadCreate_ex in exit_fail section for pthread_attr_destroy. (PR #72)
 
 ### wolfSSL Async Release v5.6.4 (Oct 30, 2023)
