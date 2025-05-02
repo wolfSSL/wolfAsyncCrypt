@@ -286,6 +286,10 @@ wolfSSL Server Benchmark 16384 bytes
 
 ## Change Log
 
+### wolfSSL Async Release v5.8.0 (May 01, 2025)
+* Includes all wolfSSL v5.8.0 fixes. See ChangeLog.md here: https://github.com/wolfSSL/wolfssl/blob/master/ChangeLog.md#wolfssl-release-580-apr-24-2025
+* Update for libwolfssl_sources.h refactor. (https://github.com/wolfSSL/wolfAsyncCrypt/pull/77)
+
 ### wolfSSL Async Release v5.7.4 (Oct 29, 2024)
 * Includes all wolfSSL v5.7.4 fixes. See ChangeLog.md here: https://github.com/wolfSSL/wolfssl/blob/master/ChangeLog.md#wolfssl-release-574-oct-24-2024
  - Plus fixes for asynchronous release - SHA3/HMAC devId (https://github.com/wolfSSL/wolfssl/pull/8119)
